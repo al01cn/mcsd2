@@ -1,36 +1,39 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# MCSD v2
 
-## Getting Started
+在浏览器内制作 Minecraft 音效资源包的 Next.js 应用。
 
-First, run the development server:
+## 技术栈
+
+- Bun
+- Next.js 16 / React 19
+- HeroUI 3.2.2 / Tailwind CSS 4
+- Motion（Framer Motion）
+- Lucide React / Phosphor Icons
+- FFmpeg WASM
+
+## 本地开发
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+bun install
+bun run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+访问 [http://localhost:3000](http://localhost:3000)。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 布局约定
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+界面在 `768px` 处切换：
 
-## Learn More
+- `app/ui/desktop-workspace.tsx`：PC 与平板布局
+- `app/ui/mobile-workspace.tsx`：移动端布局
+- `app/ui/responsive-workspace.tsx`：只负责选择显示哪套布局
 
-To learn more about Next.js, take a look at the following resources:
+两套布局分别维护，不依赖 JavaScript 用户代理判断；平板始终使用 PC 布局。
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 校验
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+bunx tsc --noEmit
+bun run lint
+bun run build
+```

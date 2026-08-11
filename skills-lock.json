@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "skills": {
+    "chrome-devtools": {
+      "source": "modelscope.cn",
+      "sourceType": "well-known",
+      "computedHash": "85d9c4ef94e00ddfc937d50aab72a307e80b98bc7e6744ec6e239ef68819c2d7"
+    },
+    "composition-patterns": {
+      "source": "modelscope.cn",
+      "sourceType": "well-known",
+      "computedHash": "f98931159fa9c7fed043bcd18a891a46dcf89ababa38df13a4c5b7b30dc0ce07"
+    },
+    "find-skills": {
+      "source": "modelscope.cn",
+      "sourceType": "well-known",
+      "computedHash": "d31e234f0c90694a670222cdd1dafa853e051d7066beda389f1097c22dadd461"
+    },
+    "frontend-design": {
+      "source": "modelscope.cn",
+      "sourceType": "well-known",
+      "computedHash": "3e0be122a3db8206b6d0d6b07cca898b5c75fb9b7b2101abe143fb2851734d2e"
+    },
+    "react-best-practices": {
+      "source": "modelscope.cn",
+      "sourceType": "well-known",
+      "computedHash": "5ec8bf238e162073d4e22ed997bc4432107de684703be42d705c764aea99d1ab"
+    },
+    "web-design-guidelines": {
+      "source": "modelscope.cn",
+      "sourceType": "well-known",
+      "computedHash": "a6a44d5498f7e8f68289902f3dedfc6f38ae0cee1e96527c80724cf27f727c2a"
+    }
+  }
+}
