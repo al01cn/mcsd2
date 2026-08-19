@@ -338,7 +338,7 @@ export function buildBedrockManifest(input: AudioPackBuildInput) {
   return {
     format_version: 2,
     header: {
-      name: input.name.trim() || "MCSD Audio Pack",
+      name: input.name.trim() || "MCSD2 Audio Pack",
       description: buildPackDescription(input.description, input.version, input.releaseChannel),
       uuid: createUuid(),
       version,
@@ -388,7 +388,7 @@ export function buildEditorManifest(input: AudioPackBuildInput): EditorManifest 
     schemaVersion: 1,
     app: "mcsd",
     project: {
-      name: input.name.trim() || "MCSD Audio Pack",
+      name: input.name.trim() || "MCSD2 Audio Pack",
       key: input.key,
       description: input.description?.trim() ?? "",
       platform: input.platform,
@@ -474,7 +474,7 @@ export function safeDownloadName(name: string) {
     .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
     .replace(/[. ]+$/g, "")
     .slice(0, 80);
-  return normalized || "MCSD-Audio-Pack";
+  return normalized || "MCSD2-Audio-Pack";
 }
 
 async function addIconToArchive(

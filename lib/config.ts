@@ -2,9 +2,10 @@ import pkg from '../package.json'
 
 export const WebConfig = {
     appVersion: pkg.version,
-    appName: "在线 Minecraft 音频包生成器",
+    appName: "MCSD2 - Minecraft 音频包生成器",
     git: {
-        github: "https://github.com/al01cn/mcsd",
+        github: "https://github.com/al01cn/mcsd2",
+        issues: "https://github.com/al01cn/mcsd2/issues",
         gitee: "https://gitee.com/al01/mcsd"
     },
     downloadUrl: {

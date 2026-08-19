@@ -6,8 +6,12 @@ import {
   Braces,
   Cpu,
   Database,
+  ExternalLink,
   FileArchive,
+  GitFork,
   Info,
+  MessageCircleQuestionMark,
+  MessagesSquare,
   ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
@@ -18,17 +22,25 @@ type Language = "zh" | "en";
 const COPY = {
   zh: {
     about: "关于",
-    title: "关于 MCSD",
+    title: "关于 MCSD2",
     eyebrow: "MINECRAFT AUDIO PACK GENERATOR",
     product: "Minecraft 音频包生成器",
     description:
-      "MCSD 是一款在浏览器中运行的 Minecraft 声音资源包制作工具。它帮助你完成音频导入、格式检测与转换、声音事件映射、版本管理和资源包导出。",
+      "MCSD2 是一款在浏览器中运行的 Minecraft 声音资源包制作工具。它帮助你完成音频导入、格式检测与转换、声音事件映射、版本管理和资源包导出。",
     privacy: "音频和工程数据保留在当前设备，处理过程无需上传源文件。",
     technologies: "使用的技术",
     technologiesDescription: "从界面交互到音频转码，全部在浏览器端协同完成。",
     changelog: "版本更新日志",
     changelogDescription: "按发布时间从新到旧排列。",
     latest: "当前版本",
+    community: "开源与支持",
+    communityDescription: "查看源代码、反馈问题或加入交流群。",
+    repository: "开源仓库",
+    repositoryValue: "al01cn/mcsd2",
+    issues: "提交 Issue",
+    issuesValue: "github.com/al01cn/mcsd2/issues",
+    qqGroup: "MCSD 交流群",
+    qqGroupValue: "1079344572",
     tech: [
       ["Next.js 16 + React 19", "应用框架与交互界面", Braces],
       ["TypeScript + Tailwind CSS 4", "类型约束与响应式样式", Boxes],
@@ -40,17 +52,25 @@ const COPY = {
   },
   en: {
     about: "About",
-    title: "About MCSD",
+    title: "About MCSD2",
     eyebrow: "MINECRAFT AUDIO PACK GENERATOR",
     product: "Minecraft Audio Pack Generator",
     description:
-      "MCSD is a browser-based workspace for building Minecraft sound resource packs. It covers audio import, validation and conversion, sound-event mapping, version management, and pack export.",
+      "MCSD2 is a browser-based workspace for building Minecraft sound resource packs. It covers audio import, validation and conversion, sound-event mapping, version management, and pack export.",
     privacy: "Audio and project data stay on this device. Source files are never uploaded for processing.",
     technologies: "Technology",
     technologiesDescription: "The interface, audio pipeline, and pack builder work together in the browser.",
     changelog: "Release notes",
     changelogDescription: "Listed from newest to oldest. Release-note details are maintained in Chinese.",
     latest: "Current",
+    community: "Open source & support",
+    communityDescription: "Browse the source, report an issue, or join the community group.",
+    repository: "Repository",
+    repositoryValue: "al01cn/mcsd2",
+    issues: "Submit an issue",
+    issuesValue: "github.com/al01cn/mcsd2/issues",
+    qqGroup: "MCSD community group",
+    qqGroupValue: "1079344572",
     tech: [
       ["Next.js 16 + React 19", "Application framework and interaction", Braces],
       ["TypeScript + Tailwind CSS 4", "Type safety and responsive styling", Boxes],
@@ -74,6 +94,14 @@ const COPY = {
     changelog: string;
     changelogDescription: string;
     latest: string;
+    community: string;
+    communityDescription: string;
+    repository: string;
+    repositoryValue: string;
+    issues: string;
+    issuesValue: string;
+    qqGroup: string;
+    qqGroupValue: string;
     tech: readonly [string, string, LucideIcon][];
   }
 >;
@@ -131,7 +159,7 @@ export function AboutModal({ language }: { language: Language }) {
         {c.about}
       </Button>
       <Modal.Backdrop className="wiki-modal-backdrop" variant="opaque">
-        <Modal.Container size="lg">
+        <Modal.Container className="about-modal-container" size="lg" scroll="inside">
           <Modal.Dialog className="wiki-modal about-modal sm:max-w-[860px]">
             <Modal.CloseTrigger className="wiki-modal__close" />
             <Modal.Header className="wiki-modal__header">
@@ -140,7 +168,7 @@ export function AboutModal({ language }: { language: Language }) {
               </Modal.Icon>
               <div>
                 <Modal.Heading className="wiki-modal__heading">{c.title}</Modal.Heading>
-                <p className="wiki-modal__description">MCSD v{latestVersion}</p>
+                <p className="wiki-modal__description">MCSD2 v{latestVersion}</p>
               </div>
             </Modal.Header>
             <Modal.Body className="wiki-modal__body about-modal__body">
@@ -187,6 +215,33 @@ export function AboutModal({ language }: { language: Language }) {
                       </div>
                     </div>
                   ))}
+                </div>
+              </section>
+
+              <section className="about-section about-community" aria-labelledby="about-community-title">
+                <div className="about-section__heading">
+                  <div>
+                    <p className="about-section__eyebrow">COMMUNITY / 03</p>
+                    <h3 id="about-community-title">{c.community}</h3>
+                  </div>
+                  <p>{c.communityDescription}</p>
+                </div>
+                <div className="about-community-links">
+                  <a href="https://github.com/al01cn/mcsd2" rel="noreferrer" target="_blank">
+                    <GitFork aria-hidden="true" size={18} />
+                    <span><small>{c.repository}</small><strong>{c.repositoryValue}</strong></span>
+                    <ExternalLink aria-hidden="true" size={15} />
+                  </a>
+                  <a href="https://github.com/al01cn/mcsd2/issues" rel="noreferrer" target="_blank">
+                    <MessageCircleQuestionMark aria-hidden="true" size={18} />
+                    <span><small>{c.issues}</small><strong>{c.issuesValue}</strong></span>
+                    <ExternalLink aria-hidden="true" size={15} />
+                  </a>
+                  <a href="https://qm.qq.com/q/qfe8r6jy2k" rel="noreferrer" target="_blank">
+                    <MessagesSquare aria-hidden="true" size={18} />
+                    <span><small>{c.qqGroup}</small><strong>{c.qqGroupValue}</strong></span>
+                    <ExternalLink aria-hidden="true" size={15} />
+                  </a>
                 </div>
               </section>
 

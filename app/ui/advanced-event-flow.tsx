@@ -126,6 +126,19 @@ const SOUND_EVENT_SET = new Set(SOUND_EVENTS);
 const EVENT_RESULT_LIMIT = 80;
 const MAX_CUSTOM_EVENT_SUFFIX_LENGTH = 8;
 const BINDING_EDGE_PREFIX = "binding:";
+const AUTO_LAYOUT_CENTER = { x: 1200, y: 900 };
+const AUTO_LAYOUT_NODE_WIDTH = 244;
+const AUTO_LAYOUT_AUDIO_NODE_HEIGHT = 108;
+const AUTO_LAYOUT_EVENT_NODE_HEIGHT = 68;
+const AUTO_LAYOUT_MIN_ARC_SPACING = 340;
+const AUTO_LAYOUT_AUDIO_START_RADIUS = 360;
+const AUTO_LAYOUT_RING_GAP = 320;
+const AUTO_LAYOUT_JITTER_RADIUS = 12;
+const AUTO_LAYOUT_VERTICAL_SCALE = 0.7;
+const AUTO_LAYOUT_ORIGIN = {
+  x: AUTO_LAYOUT_CENTER.x - AUTO_LAYOUT_NODE_WIDTH / 2,
+  y: AUTO_LAYOUT_CENTER.y - AUTO_LAYOUT_AUDIO_NODE_HEIGHT / 2,
+};
 const SOUND_EVENT_TRANSLATIONS = new Map(
   SOUND_EVENTS.map((eventName) => {
     const translation = translateSoundEventKeyZh(eventName);
@@ -198,6 +211,107 @@ const FLOW_COPY = {
 
 function createBindingEdgeId(audioId: string, eventName: string) {
   return `${BINDING_EDGE_PREFIX}${encodeURIComponent(audioId)}:${encodeURIComponent(eventName)}`;
+}
+
+function hashNodeId(nodeId: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < nodeId.length; index += 1) {
+    hash ^= nodeId.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function getStableNodeJitter(nodeId: string) {
+  const hash = hashNodeId(nodeId);
+  return {
+    angle: ((hash & 0xffff) / 0xffff - 0.5) * 0.08,
+    radius: (((hash >>> 16) & 0xff) / 0xff - 0.5) * AUTO_LAYOUT_JITTER_RADIUS * 2,
+  };
+}
+
+function getRingCapacity(radius: number) {
+  return Math.max(3, Math.floor((Math.PI * 2 * radius) / AUTO_LAYOUT_MIN_ARC_SPACING));
+}
+
+function distributeNodesOnRings({
+  nodeIds,
+  positions,
+  startRadius,
+  nodeHeight,
+  angleOffset,
+}: {
+  nodeIds: string[];
+  positions: Map<string, XYPosition>;
+  startRadius: number;
+  nodeHeight: number;
+  angleOffset: number;
+}) {
+  if (nodeIds.length === 0) return startRadius - AUTO_LAYOUT_RING_GAP;
+
+  const ringRadii: number[] = [];
+  let totalCapacity = 0;
+  while (totalCapacity < nodeIds.length) {
+    const radius = startRadius + ringRadii.length * AUTO_LAYOUT_RING_GAP;
+    ringRadii.push(radius);
+    totalCapacity += getRingCapacity(radius);
+  }
+
+  let nodeIndex = 0;
+  ringRadii.forEach((radius, ringIndex) => {
+    const remainingNodes = nodeIds.length - nodeIndex;
+    const remainingRings = ringRadii.length - ringIndex;
+    const nodesInRing = Math.min(
+      getRingCapacity(radius),
+      Math.ceil(remainingNodes / remainingRings),
+    );
+    const angleStep = (Math.PI * 2) / nodesInRing;
+    const ringAngleOffset = angleOffset + (ringIndex % 2) * angleStep * 0.5;
+
+    for (let index = 0; index < nodesInRing; index += 1) {
+      const nodeId = nodeIds[nodeIndex];
+      const jitter = getStableNodeJitter(nodeId);
+      const angle = ringAngleOffset + index * angleStep + jitter.angle * angleStep;
+      const nodeRadius = radius + jitter.radius;
+      positions.set(nodeId, {
+        x:
+          AUTO_LAYOUT_CENTER.x +
+          Math.cos(angle) * nodeRadius -
+          AUTO_LAYOUT_NODE_WIDTH / 2,
+        y:
+          AUTO_LAYOUT_CENTER.y +
+          Math.sin(angle) * nodeRadius * AUTO_LAYOUT_VERTICAL_SCALE -
+          nodeHeight / 2,
+      });
+      nodeIndex += 1;
+    }
+  });
+
+  return ringRadii.at(-1) ?? startRadius;
+}
+
+function createAutoNodeLayout(audioNodeIds: string[], eventNodeIds: string[]) {
+  const positions = new Map<string, XYPosition>();
+  const lastAudioRadius = distributeNodesOnRings({
+    nodeIds: audioNodeIds,
+    positions,
+    startRadius: AUTO_LAYOUT_AUDIO_START_RADIUS,
+    nodeHeight: AUTO_LAYOUT_AUDIO_NODE_HEIGHT,
+    angleOffset: -Math.PI / 2,
+  });
+  const eventStartRadius = Math.max(
+    AUTO_LAYOUT_AUDIO_START_RADIUS + AUTO_LAYOUT_RING_GAP,
+    lastAudioRadius + AUTO_LAYOUT_RING_GAP,
+  );
+  distributeNodesOnRings({
+    nodeIds: eventNodeIds,
+    positions,
+    startRadius: eventStartRadius,
+    nodeHeight: AUTO_LAYOUT_EVENT_NODE_HEIGHT,
+    angleOffset: -Math.PI / 2 + Math.PI / 12,
+  });
+
+  return positions;
 }
 
 function SoundGraphNode({ id, data, selected }: NodeProps<SoundNode>) {
@@ -706,6 +820,27 @@ function AdvancedEventFlowCanvas({
         audio,
       ]),
     );
+    const plannedAudioNodeIds = Object.entries(eventBindings)
+      .filter(
+        ([audioId, boundEvents]) =>
+          boundEvents.some(Boolean) && audioFiles.some((audio) => audio.id === audioId),
+      )
+      .map(([audioId]) => `audio:${audioId}`);
+    const plannedEventNodeIds = Array.from(
+      new Set(
+        Object.entries(eventBindings).flatMap(([audioId, boundEvents]) => {
+          if (!audioFiles.some((audio) => audio.id === audioId)) return [];
+          return boundEvents.filter(Boolean).map((eventName) => {
+            const customOwner = customEventOwners.get(eventName);
+            return customOwner ? `event:custom:${customOwner.id}` : `event:${eventName}`;
+          });
+        }),
+      ),
+    );
+    const autoNodePositions = createAutoNodeLayout(
+      plannedAudioNodeIds,
+      plannedEventNodeIds,
+    );
     const boundAudioIdsByEvent = new Map<string, string[]>();
     for (const [audioId, boundEvents] of Object.entries(eventBindings)) {
       if (!audioFiles.some((audio) => audio.id === audioId)) continue;
@@ -720,7 +855,7 @@ function AdvancedEventFlowCanvas({
       maximumFractionDigits: 1,
     });
     const desiredEdges: BindingEdge[] = [];
-    let nextEventPosition = nextNodes.filter((node) => node.data.kind === "event").length;
+    const shouldFitInitialLayout = nextNodes.length === 0 && plannedAudioNodeIds.length > 0;
 
     for (const [audioId, boundEvents] of Object.entries(eventBindings)) {
       const audio = audioFiles.find((item) => item.id === audioId);
@@ -731,7 +866,7 @@ function AdvancedEventFlowCanvas({
         nextNodes.push({
           id: audioNodeId,
           type: "soundNode",
-          position: { x: 80, y: 80 + audioFiles.indexOf(audio) * 112 },
+          position: autoNodePositions.get(audioNodeId) ?? AUTO_LAYOUT_ORIGIN,
           data: {
             kind: "audio",
             label: audio.name,
@@ -766,7 +901,10 @@ function AdvancedEventFlowCanvas({
           nextNodes.push({
             id: eventNodeId,
             type: "soundNode",
-            position: { x: 440, y: 80 + nextEventPosition * 112 },
+            position: autoNodePositions.get(eventNodeId) ?? {
+              x: AUTO_LAYOUT_CENTER.x + AUTO_LAYOUT_AUDIO_START_RADIUS,
+              y: AUTO_LAYOUT_CENTER.y - AUTO_LAYOUT_EVENT_NODE_HEIGHT / 2,
+            },
             data: {
               kind: "event",
               label: eventName,
@@ -789,7 +927,6 @@ function AdvancedEventFlowCanvas({
           });
           nodeIds.add(eventNodeId);
           eventNodeIds.set(eventName, eventNodeId);
-          nextEventPosition += 1;
         }
         const eventAudioIds = boundAudioIdsByEvent.get(eventName) ?? [audioId];
         const weight = getAudioEventWeight(eventWeights, audioId, eventName);
@@ -828,6 +965,13 @@ function AdvancedEventFlowCanvas({
       const currentById = new Map(currentEdges.map((edge) => [edge.id, edge]));
       return desiredEdges.map((edge) => ({ ...currentById.get(edge.id), ...edge }));
     });
+    if (shouldFitInitialLayout) {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          void fitView({ padding: 0.16, maxZoom: 1, duration: 0 });
+        });
+      });
+    }
   }, [
     audioFiles,
     audioSubtitles,
@@ -844,6 +988,7 @@ function AdvancedEventFlowCanvas({
     deleteNode,
     eventBindings,
     eventWeights,
+    fitView,
     getPreviewState,
     language,
     motionEnabled,
@@ -1229,7 +1374,7 @@ function AdvancedEventFlowCanvas({
         deleteKeyCode={["Backspace", "Delete"]}
         fitView
         fitViewOptions={{ padding: 0.22, maxZoom: 1 }}
-        minZoom={0.35}
+        minZoom={0.2}
         maxZoom={1.5}
         snapToGrid
         snapGrid={[16, 16]}

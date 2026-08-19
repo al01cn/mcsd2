@@ -177,7 +177,7 @@ export function ExportWorkspace({
 
   const platform = project?.platform ?? "java";
   const input = useMemo<AudioPackBuildInput>(() => ({
-    name: project?.name ?? "MCSD Audio Pack",
+    name: project?.name ?? "MCSD2 Audio Pack",
     key: project?.key ?? "mcsd",
     description: project?.description,
     platform,

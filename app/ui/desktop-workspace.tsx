@@ -54,6 +54,7 @@ import { AboutModal } from "@/app/ui/about-modal";
 import { BasicEventBindingModal } from "@/app/ui/basic-event-binding-modal";
 import { ExportWorkspace } from "@/app/ui/export-workspace";
 import { MobileWorkspace } from "@/app/ui/mobile-workspace";
+import { ComplianceFooter } from "@/app/ui/compliance-footer";
 import ffmpeg, {
   FFMPEG_CDN_BASES,
   FFMPEG_CORE_VERSION,
@@ -563,9 +564,11 @@ const COPY = {
     exportReady: "工程摘要",
     exportDescription: "确认内容后生成声音资源包。",
     generate: "生成音频包",
-    helpTitle: "MCSD 帮助",
-    settingsTitle: "MCSD 设置",
+    helpTitle: "MCSD2 帮助",
+    settingsTitle: "MCSD2 设置",
     interface: "界面设置",
+    complianceInfo: "备案信息",
+    complianceInfoDescription: "在工程主页底部显示 ICP 备案号与公安备案号。",
     versionManagement: "版本管理",
     versionIncrementRule: "版本递增规则",
     versionIncrementDescription: "除主版本外，次版本与修订版本按该数值进位，范围 1–100。",
@@ -696,9 +699,11 @@ const COPY = {
     exportReady: "Project summary",
     exportDescription: "Review the project before building the sound resource pack.",
     generate: "Build audio pack",
-    helpTitle: "MCSD Help",
-    settingsTitle: "MCSD Settings",
+    helpTitle: "MCSD2 Help",
+    settingsTitle: "MCSD2 Settings",
     interface: "Interface",
+    complianceInfo: "Registration information",
+    complianceInfoDescription: "Show ICP and public security registration links on the project home page.",
     versionManagement: "Version management",
     versionIncrementRule: "Version increment rule",
     versionIncrementDescription: "Minor and patch versions carry at this value, from 1 to 100.",
@@ -753,13 +758,13 @@ const COPY = {
 
 const FAQ = {
   zh: [
-    ["MCSD 可以制作什么？", "MCSD 将音频转换为 Minecraft Java 版可用的声音资源包，并生成对应的事件映射。"],
+    ["MCSD2 可以制作什么？", "MCSD2 将音频转换为 Minecraft Java 版可用的声音资源包，并生成对应的事件映射。"],
     ["音频会上传到服务器吗？", "不会。音频转换由浏览器中的 FFmpeg WASM 完成，源文件不会离开当前设备。"],
     ["支持哪些音频格式？", "当前导入界面接受 MP3、WAV、FLAC、M4A 与 OGG 文件。"],
     ["为什么 FFmpeg 无法加载？", "可以在设置中更换下载源。下载源列表会显示当前网络下的可用状态和真实延迟。"],
   ],
   en: [
-    ["What can MCSD build?", "MCSD converts audio into a sound resource pack for Minecraft Java Edition and prepares event mappings."],
+    ["What can MCSD2 build?", "MCSD2 converts audio into a sound resource pack for Minecraft Java Edition and prepares event mappings."],
     ["Are audio files uploaded?", "No. FFmpeg WASM runs in the browser, so source files remain on this device."],
     ["Which formats are supported?", "The current importer accepts MP3, WAV, FLAC, M4A and OGG files."],
     ["Why did FFmpeg fail to load?", "Change the download source in Settings. The source list shows live availability and latency for this network."],
@@ -910,6 +915,8 @@ function GlobalTools({
   setTheme,
   motionEnabled,
   setMotionEnabled,
+  showComplianceInfo,
+  setShowComplianceInfo,
   selectedSource,
   setSelectedSource,
   projects,
@@ -925,6 +932,8 @@ function GlobalTools({
   setTheme: (theme: ThemePreference) => void;
   motionEnabled: boolean;
   setMotionEnabled: (enabled: boolean) => void;
+  showComplianceInfo: boolean;
+  setShowComplianceInfo: (enabled: boolean) => void;
   selectedSource: string;
   setSelectedSource: (source: string) => void;
   projects: Project[];
@@ -1339,6 +1348,28 @@ function GlobalTools({
                         <Switch.Control className="wiki-switch__control">
                           <Switch.Thumb className="wiki-switch__thumb">
                             <Switch.Icon>{motionEnabled ? <Check size={12} /> : null}</Switch.Icon>
+                          </Switch.Thumb>
+                        </Switch.Control>
+                      </Switch.Content>
+                    </Switch>
+                  </div>
+
+                  <div className="setting-row">
+                    <div>
+                      <p className="setting-row__label">{c.complianceInfo}</p>
+                      <p className="setting-row__value">{c.complianceInfoDescription}</p>
+                    </div>
+                    <Switch
+                      aria-label={c.complianceInfo}
+                      className="wiki-switch"
+                      isSelected={showComplianceInfo}
+                      onChange={setShowComplianceInfo}
+                    >
+                      <Switch.Content>
+                        <span className="wiki-switch__state">{showComplianceInfo ? c.on : c.off}</span>
+                        <Switch.Control className="wiki-switch__control">
+                          <Switch.Thumb className="wiki-switch__thumb">
+                            <Switch.Icon>{showComplianceInfo ? <Check size={12} /> : null}</Switch.Icon>
                           </Switch.Thumb>
                         </Switch.Control>
                       </Switch.Content>
@@ -1802,11 +1833,11 @@ function ProjectVersionHistoryModal({
 
 function Brand() {
   return (
-    <div className="mcsd-brand" aria-label="MCSD">
+    <div className="mcsd-brand" aria-label="MCSD2">
       <span className="mcsd-brand__mark">
         <WaveformIcon aria-hidden="true" size={25} weight="bold" />
       </span>
-      <span className="mcsd-brand__wordmark">MCSD</span>
+      <span className="mcsd-brand__wordmark">MCSD2</span>
     </div>
   );
 }
@@ -1846,6 +1877,7 @@ export function DesktopWorkspace() {
   const [resolvedTheme, setResolvedTheme] = useState<"day" | "night">("day");
   const [language, setLanguage] = useState<Language>("zh");
   const [motionEnabled, setMotionEnabled] = useState(true);
+  const [showComplianceInfo, setShowComplianceInfo] = useState(true);
   const [versionIncrementLimit, setVersionIncrementLimit] = useState(
     DEFAULT_VERSION_INCREMENT_LIMIT,
   );
@@ -1896,10 +1928,14 @@ export function DesktopWorkspace() {
             selectedSource?: string;
             versionIncrementLimit?: number;
             autoSaveVersionHistory?: boolean;
+            showComplianceInfo?: boolean;
           };
           if (settings.theme) setTheme(settings.theme);
           if (settings.language) setLanguage(settings.language);
           if (typeof settings.motionEnabled === "boolean") setMotionEnabled(settings.motionEnabled);
+          if (typeof settings.showComplianceInfo === "boolean") {
+            setShowComplianceInfo(settings.showComplianceInfo);
+          }
           if (settings.selectedSource) setSelectedSource(settings.selectedSource);
           if (settings.versionIncrementLimit !== undefined) {
             setVersionIncrementLimit(
@@ -1930,6 +1966,7 @@ export function DesktopWorkspace() {
         theme,
         language,
         motionEnabled,
+        showComplianceInfo,
         selectedSource,
         versionIncrementLimit,
         autoSaveVersionHistory,
@@ -1941,6 +1978,7 @@ export function DesktopWorkspace() {
     language,
     motionEnabled,
     selectedSource,
+    showComplianceInfo,
     theme,
     versionIncrementLimit,
   ]);
@@ -2981,6 +3019,8 @@ export function DesktopWorkspace() {
       setTheme={setTheme}
       motionEnabled={motionEnabled}
       setMotionEnabled={setMotionEnabled}
+      showComplianceInfo={showComplianceInfo}
+      setShowComplianceInfo={setShowComplianceInfo}
       selectedSource={selectedSource}
       setSelectedSource={setSelectedSource}
       projects={projects}
@@ -2999,6 +3039,7 @@ export function DesktopWorkspace() {
           language={language}
           colorMode={resolvedTheme}
           motionEnabled={motionEnabled}
+          showComplianceInfo={showComplianceInfo}
           view={view}
           activeStep={activeStep}
           projects={projects}
@@ -3101,7 +3142,7 @@ export function DesktopWorkspace() {
         <main className="home-shell">
           <div className="page-heading">
             <div>
-              <p className="page-heading__eyebrow">MCSD / PROJECT INDEX</p>
+              <p className="page-heading__eyebrow">MCSD2 / PROJECT INDEX</p>
               <h1>{c.projects}</h1>
               <p>{c.projectsDescription}</p>
             </div>
@@ -3245,6 +3286,8 @@ export function DesktopWorkspace() {
               ))}
             </nav>
           ) : null}
+
+          <ComplianceFooter visible={showComplianceInfo} />
         </main>
       ) : (
         <main className="workspace-shell">

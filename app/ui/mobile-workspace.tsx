@@ -31,6 +31,7 @@ import {
 } from "@/app/ui/create-project-modal";
 import { ExportWorkspace } from "@/app/ui/export-workspace";
 import type { AudioEventWeights } from "@/lib/audio-event-weight";
+import { ComplianceFooter } from "@/app/ui/compliance-footer";
 import type { ReleaseChannel } from "@/lib/project-version";
 
 type Language = "zh" | "en";
@@ -70,7 +71,7 @@ type MobileAudio = {
 
 const COPY = {
   zh: {
-    appName: "MCSD 音频包",
+    appName: "MCSD2 音频包",
     projects: "我的音频包",
     projectsHint: "保存在当前设备",
     create: "创建或导入",
@@ -109,7 +110,7 @@ const COPY = {
     settings: "设置",
   },
   en: {
-    appName: "MCSD Audio Packs",
+    appName: "MCSD2 Audio Packs",
     projects: "My audio packs",
     projectsHint: "Saved on this device",
     create: "Create or import",
@@ -180,6 +181,7 @@ export function MobileWorkspace({
   language,
   colorMode,
   motionEnabled,
+  showComplianceInfo,
   view,
   activeStep,
   projects,
@@ -220,6 +222,7 @@ export function MobileWorkspace({
   language: Language;
   colorMode: "day" | "night";
   motionEnabled: boolean;
+  showComplianceInfo: boolean;
   view: "home" | "workspace";
   activeStep: number;
   projects: MobileProject[];
@@ -282,7 +285,7 @@ export function MobileWorkspace({
           </span>
           <div>
             <strong>{view === "home" ? c.appName : selectedProject?.name}</strong>
-            <span>{view === "home" ? c.projectsHint : `MCSD / ${selectedProject?.key ?? "mcsd"}`}</span>
+            <span>{view === "home" ? c.projectsHint : `MCSD2 / ${selectedProject?.key ?? "mcsd"}`}</span>
           </div>
         </div>
         <div className="mobile-app-bar__tools">{globalTools}</div>
@@ -630,6 +633,7 @@ export function MobileWorkspace({
             ) : null}
           </>
         )}
+        {view === "home" ? <ComplianceFooter visible={showComplianceInfo} /> : null}
       </main>
 
     </div>
