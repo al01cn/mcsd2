@@ -7,6 +7,7 @@ import ffmpeg, { type FFmpegLoadPhase } from "@/lib/ffmpeg";
 
 const PHASE_LABELS: Record<FFmpegLoadPhase, string> = {
   idle: "准备加载 FFmpeg",
+  "probing-sources": "正在测速下载源",
   "downloading-core": "正在下载 FFmpeg 核心脚本",
   "downloading-wasm": "正在下载 FFmpeg WebAssembly",
   initializing: "正在初始化 FFmpeg",
@@ -16,23 +17,86 @@ const PHASE_LABELS: Record<FFmpegLoadPhase, string> = {
   error: "FFmpeg 加载失败",
 };
 
+const MOBILE_QUERY = "(max-width: 767px)";
+
+function subscribeMobile(onChange: () => void) {
+  const query = window.matchMedia(MOBILE_QUERY);
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+}
+
+function getMobileSnapshot() {
+  return window.matchMedia(MOBILE_QUERY).matches;
+}
+
+function getMobileServerSnapshot() {
+  return false;
+}
+
 export function FFmpegLoadingGate() {
   const snapshot = useSyncExternalStore(
     ffmpeg.subscribe,
     ffmpeg.getSnapshot,
     ffmpeg.getServerSnapshot,
   );
-  const [isOpen, setIsOpen] = useState(true);
+  const isMobile = useSyncExternalStore(
+    subscribeMobile,
+    getMobileSnapshot,
+    getMobileServerSnapshot,
+  );
+  const [startupGateActive, setStartupGateActive] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
 
   useEffect(() => {
-    void ffmpeg.load().catch(() => undefined);
+    // Let the responsive workspace hydrate first. Mobile gets a short paint window
+    // before the core starts, while desktop preloads during browser idle time.
+    const mobileQuery = window.matchMedia("(max-width: 767px)");
+    const load = () => void ffmpeg.load().catch(() => undefined);
+    let idleCallback: number | undefined;
+    let fallbackTimer: number | undefined;
+
+    if (mobileQuery.matches) {
+      fallbackTimer = window.setTimeout(load, 120);
+    } else {
+      idleCallback = window.requestIdleCallback?.(load, { timeout: 1200 });
+      fallbackTimer = idleCallback === undefined ? window.setTimeout(load, 180) : undefined;
+    }
+
+    return () => {
+      if (idleCallback !== undefined) window.cancelIdleCallback?.(idleCallback);
+      if (fallbackTimer !== undefined) window.clearTimeout(fallbackTimer);
+    };
   }, []);
 
   useEffect(() => {
-    if (!snapshot.loaded || snapshot.status !== "success") return;
-    const closeTimer = window.setTimeout(() => setIsOpen(false), 3000);
-    return () => window.clearTimeout(closeTimer);
-  }, [snapshot.loaded, snapshot.status]);
+    if (isMobile) return;
+
+    if (snapshot.status === "loading" && snapshot.phase !== "processing") {
+      const openTimer = window.setTimeout(() => {
+        setStartupGateActive(true);
+        setIsClosing(false);
+      }, 0);
+      return () => window.clearTimeout(openTimer);
+    }
+
+    if (snapshot.status === "success" && snapshot.phase === "ready" && startupGateActive && !isClosing) {
+      const holdTimer = window.setTimeout(() => setIsClosing(true), 3000);
+      return () => window.clearTimeout(holdTimer);
+    }
+
+    if (isClosing) {
+      const closeTimer = window.setTimeout(() => {
+        setIsClosing(false);
+        setStartupGateActive(false);
+      }, 180);
+      return () => window.clearTimeout(closeTimer);
+    }
+  }, [isClosing, isMobile, snapshot.phase, snapshot.status, startupGateActive]);
+
+  const isOpen = !isMobile &&
+    ((snapshot.status === "loading" && snapshot.phase !== "processing") ||
+      snapshot.status === "error" ||
+      (startupGateActive && snapshot.status === "success" && snapshot.phase === "ready"));
 
   const sourceHost = (() => {
     if (!snapshot.source) return "-";
@@ -50,13 +114,13 @@ export function FFmpegLoadingGate() {
   return (
     <Modal isOpen={isOpen}>
       <Modal.Backdrop
-        className="ffmpeg-gate-backdrop"
+        className={`ffmpeg-gate-backdrop${isClosing ? " is-closing" : ""}`}
         isDismissable={false}
         isKeyboardDismissDisabled
         variant="opaque"
       >
         <Modal.Container placement="center" size="md">
-          <Modal.Dialog className="ffmpeg-gate sm:max-w-[620px]">
+          <Modal.Dialog className={`ffmpeg-gate sm:max-w-[620px]${isClosing ? " is-closing" : ""}`}>
             <Modal.Header className="ffmpeg-gate__header">
               <Modal.Icon
                 className={`ffmpeg-gate__icon ${

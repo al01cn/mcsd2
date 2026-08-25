@@ -26,9 +26,10 @@ export type PersistedProjectWorkspace = {
   schemaVersion: 1;
   updatedAt: number;
   activeStep: number;
-  eventEditorMode: "basic" | "advanced";
+  eventEditorMode: "novice" | "basic" | "advanced";
   audioFiles: PersistedWorkspaceAudio[];
   customEventSuffixes: Record<string, string>;
+  customEventNames?: string[];
   audioEventBindings: Record<string, string[]>;
   audioEventWeights?: AudioEventWeights;
   audioSubtitles?: Record<string, string>;

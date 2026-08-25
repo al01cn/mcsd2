@@ -52,6 +52,7 @@ import {
 } from "@/app/ui/create-project-modal";
 import { AboutModal } from "@/app/ui/about-modal";
 import { BasicEventBindingModal } from "@/app/ui/basic-event-binding-modal";
+import { NoviceEventManager } from "@/app/ui/novice-event-manager";
 import { ExportWorkspace } from "@/app/ui/export-workspace";
 import { MobileWorkspace } from "@/app/ui/mobile-workspace";
 import { ComplianceFooter } from "@/app/ui/compliance-footer";
@@ -80,6 +81,7 @@ import {
 } from "@/lib/project-workspace-db";
 import {
   buildLegacySoundMappings,
+  deriveCustomEventNames,
   EDITOR_METADATA_PATH,
   type EditorManifest,
 } from "@/lib/audio-pack";
@@ -104,7 +106,7 @@ import {
 type ThemePreference = "day" | "night" | "system";
 type Language = "zh" | "en";
 type View = "home" | "workspace";
-type EventEditorMode = "basic" | "advanced";
+type EventEditorMode = "novice" | "basic" | "advanced";
 type ProbeResult = { available: boolean; latency: number | null };
 type AudioAnalysisStatus = "analyzing" | "ready" | "error";
 type AudioConversionStatus = "idle" | "queued" | "converting" | "converted" | "skipped" | "error";
@@ -185,9 +187,10 @@ function createEmptyProjectWorkspace(projectId: string): PersistedProjectWorkspa
     schemaVersion: 1,
     updatedAt: Date.now(),
     activeStep: 0,
-    eventEditorMode: "basic",
+    eventEditorMode: "novice",
     audioFiles: [],
     customEventSuffixes: {},
+    customEventNames: [],
     audioEventBindings: {},
     audioEventWeights: {},
     audioSubtitles: {},
@@ -466,11 +469,14 @@ async function readAudioPackArchive(file: File) {
     schemaVersion: 1,
     updatedAt: Date.now(),
     activeStep: 0,
-    eventEditorMode: Object.values(importedEventBindings).some((events) => events.length > 1)
-      ? "advanced"
-      : "basic",
+    eventEditorMode: "novice",
     audioFiles,
     customEventSuffixes: manifest?.customEventSuffixes ?? legacyMappings.customEventSuffixes,
+    customEventNames: manifest?.customEventNames
+      ?? deriveCustomEventNames(
+        manifest?.customEventSuffixes ?? legacyMappings.customEventSuffixes,
+        importedEventBindings,
+      ),
     audioEventBindings: importedEventBindings,
     audioEventWeights: manifest?.eventWeights ?? legacyMappings.eventWeights,
     audioSubtitles: manifest?.audioSubtitles ?? legacyMappings.audioSubtitles,
@@ -558,6 +564,7 @@ const COPY = {
     event: "Minecraft 声音事件",
     subtitle: "Minecraft 声音字幕",
     subtitlePlaceholder: "留空则不添加字幕",
+    novice: "小白",
     basic: "基础",
     advanced: "高级",
     eventEditorMode: "事件设置方式",
@@ -693,6 +700,7 @@ const COPY = {
     event: "Minecraft sound event",
     subtitle: "Minecraft subtitle",
     subtitlePlaceholder: "Leave empty to omit the subtitle",
+    novice: "Easy",
     basic: "Basic",
     advanced: "Advanced",
     eventEditorMode: "Event editor mode",
@@ -1886,10 +1894,11 @@ export function DesktopWorkspace() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [activeStep, setActiveStep] = useState(0);
-  const [eventEditorMode, setEventEditorMode] = useState<EventEditorMode>("basic");
+  const [eventEditorMode, setEventEditorMode] = useState<EventEditorMode>("novice");
   const [hasOpenedAdvancedEditor, setHasOpenedAdvancedEditor] = useState(false);
   const [audioFiles, setAudioFiles] = useState<WorkspaceAudioFile[]>([]);
   const [customEventSuffixes, setCustomEventSuffixes] = useState<Record<string, string>>({});
+  const [customEventNames, setCustomEventNames] = useState<string[]>([]);
   const [audioEventBindings, setAudioEventBindings] = useState<Record<string, string[]>>({});
   const [audioEventWeights, setAudioEventWeights] = useState<AudioEventWeights>({});
   const [audioSubtitles, setAudioSubtitles] = useState<Record<string, string>>({});
@@ -1913,7 +1922,7 @@ export function DesktopWorkspace() {
   const audioPreviewRef = useRef<{ id: string; audio: HTMLAudioElement; url: string } | null>(null);
   const workspaceLoadRequestRef = useRef(0);
   const c = COPY[language];
-  const visibleEventEditorMode = isMobileWorkspace ? "basic" : eventEditorMode;
+  const visibleEventEditorMode = isMobileWorkspace ? "novice" : eventEditorMode;
 
   useEffect(() => {
     const hydrationTask = window.setTimeout(() => {
@@ -1999,6 +2008,7 @@ export function DesktopWorkspace() {
         eventEditorMode,
         audioFiles: audioFiles.map(persistWorkspaceAudio),
         customEventSuffixes,
+        customEventNames,
         audioEventBindings,
         audioEventWeights,
         audioSubtitles,
@@ -2013,6 +2023,7 @@ export function DesktopWorkspace() {
     audioSubtitles,
     audioFiles,
     customEventSuffixes,
+    customEventNames,
     eventEditorMode,
     hasHydrated,
     selectedProjectId,
@@ -2050,9 +2061,10 @@ export function DesktopWorkspace() {
       schemaVersion: 1,
       updatedAt: 0,
       activeStep: 0,
-      eventEditorMode: "basic",
+      eventEditorMode: "novice",
       audioFiles: audioFiles.map(persistWorkspaceAudio),
       customEventSuffixes,
+      customEventNames,
       audioEventBindings,
       audioEventWeights,
       audioSubtitles,
@@ -2063,6 +2075,7 @@ export function DesktopWorkspace() {
     audioFiles,
     audioSubtitles,
     customEventSuffixes,
+    customEventNames,
     selectedProject,
     selectedProjectId,
   ]);
@@ -2179,6 +2192,7 @@ export function DesktopWorkspace() {
       eventEditorMode,
       audioFiles: audioFiles.map(persistWorkspaceAudio),
       customEventSuffixes,
+      customEventNames,
       audioEventBindings,
       audioEventWeights,
       audioSubtitles,
@@ -2190,6 +2204,7 @@ export function DesktopWorkspace() {
     audioSubtitles,
     audioFiles,
     customEventSuffixes,
+    customEventNames,
     eventEditorMode,
     hasHydrated,
     selectedProjectId,
@@ -2210,6 +2225,7 @@ export function DesktopWorkspace() {
       eventEditorMode,
       audioFiles: audioFiles.map(persistWorkspaceAudio),
       customEventSuffixes,
+      customEventNames,
       audioEventBindings,
       audioEventWeights,
       audioSubtitles,
@@ -2279,6 +2295,7 @@ export function DesktopWorkspace() {
     setSelectedProjectId(snapshot.projectId);
     setAudioFiles(restoredAudio);
     setCustomEventSuffixes(restoredWorkspace.customEventSuffixes);
+    setCustomEventNames(restoredWorkspace.customEventNames ?? deriveCustomEventNames(restoredWorkspace.customEventSuffixes, restoredWorkspace.audioEventBindings));
     setAudioEventBindings(restoredWorkspace.audioEventBindings);
     setAudioEventWeights(restoredWorkspace.audioEventWeights ?? {});
     setAudioSubtitles(restoredWorkspace.audioSubtitles ?? {});
@@ -2321,6 +2338,7 @@ export function DesktopWorkspace() {
     stopAudioPreview();
     setAudioFiles([]);
     setCustomEventSuffixes({});
+    setCustomEventNames([]);
     setAudioEventBindings({});
     setAudioEventWeights({});
     setAudioSubtitles({});
@@ -2328,7 +2346,7 @@ export function DesktopWorkspace() {
     setIsPreparingAudio(false);
     setAudioPage(1);
     setActiveStep(0);
-    setEventEditorMode("basic");
+    setEventEditorMode("novice");
     setHasOpenedAdvancedEditor(false);
     setView("workspace");
     setWorkspaceStorageReady(true);
@@ -2375,6 +2393,7 @@ export function DesktopWorkspace() {
     stopAudioPreview();
     setAudioFiles(imported.workspace.audioFiles.map(restoreWorkspaceAudio));
     setCustomEventSuffixes(imported.workspace.customEventSuffixes);
+    setCustomEventNames(imported.workspace.customEventNames ?? deriveCustomEventNames(imported.workspace.customEventSuffixes, imported.workspace.audioEventBindings));
     setAudioEventBindings(imported.workspace.audioEventBindings);
     setAudioEventWeights(imported.workspace.audioEventWeights ?? {});
     setAudioSubtitles(imported.workspace.audioSubtitles ?? {});
@@ -2382,7 +2401,7 @@ export function DesktopWorkspace() {
     setIsPreparingAudio(false);
     setAudioPage(1);
     setActiveStep(Math.max(0, Math.min(2, imported.workspace.activeStep)));
-    setEventEditorMode("basic");
+    setEventEditorMode("novice");
     setHasOpenedAdvancedEditor(false);
     setView("workspace");
     setProjects((current) => current.map((item) => item.id === project.id
@@ -2402,6 +2421,7 @@ export function DesktopWorkspace() {
     stopAudioPreview();
     setAudioFiles([]);
     setCustomEventSuffixes({});
+    setCustomEventNames([]);
     setAudioEventBindings({});
     setAudioEventWeights({});
     setAudioSubtitles({});
@@ -2409,7 +2429,7 @@ export function DesktopWorkspace() {
     setIsPreparingAudio(false);
     setAudioPage(1);
     setActiveStep(0);
-    setEventEditorMode("basic");
+    setEventEditorMode("novice");
     setHasOpenedAdvancedEditor(false);
     setView("workspace");
 
@@ -2438,6 +2458,7 @@ export function DesktopWorkspace() {
         const restoredAudio = workspace.audioFiles.map(restoreWorkspaceAudio);
         setAudioFiles(restoredAudio);
         setCustomEventSuffixes(workspace.customEventSuffixes);
+        setCustomEventNames(workspace.customEventNames ?? deriveCustomEventNames(workspace.customEventSuffixes, workspace.audioEventBindings));
         setAudioEventBindings(workspace.audioEventBindings);
         setAudioEventWeights(workspace.audioEventWeights ?? {});
         setAudioSubtitles(workspace.audioSubtitles ?? {});
@@ -2530,6 +2551,10 @@ export function DesktopWorkspace() {
       for (const item of nextItems) next[item.id] = item.key;
       return next;
     });
+    setCustomEventNames((current) => Array.from(new Set([
+      ...current,
+      ...nextItems.map((item) => `mcsd.${item.key}`),
+    ])));
     setAudioEventBindings((current) => {
       const next = { ...current };
       for (const item of nextItems) next[item.id] = [`mcsd.${item.key}`];
@@ -2751,10 +2776,6 @@ export function DesktopWorkspace() {
     if (audioPreviewRef.current?.id === audioId) stopAudioPreview();
     if (previewErrorAudioId === audioId) setPreviewErrorAudioId(null);
     const nextAudioFiles = audioFiles.filter((item) => item.id !== audioId);
-    const removedAudio = audioFiles.find((item) => item.id === audioId);
-    const removedCustomEvent = removedAudio
-      ? `mcsd.${customEventSuffixes[audioId] ?? removedAudio.key}`
-      : null;
     setAudioPreparationError(null);
     setAudioFiles(nextAudioFiles);
     setCustomEventSuffixes((current) => {
@@ -2766,9 +2787,7 @@ export function DesktopWorkspace() {
       const next: Record<string, string[]> = {};
       for (const [itemId, events] of Object.entries(current)) {
         if (itemId === audioId) continue;
-        next[itemId] = removedCustomEvent
-          ? events.filter((eventName) => eventName !== removedCustomEvent)
-          : events;
+        next[itemId] = events;
       }
       return next;
     });
@@ -2861,6 +2880,9 @@ export function DesktopWorkspace() {
       const previousEventName = `mcsd.${customEventSuffixes[audioId] ?? audio.key}`;
       const nextEventName = `mcsd.${normalized}`;
       setCustomEventSuffixes((current) => ({ ...current, [audioId]: normalized }));
+      setCustomEventNames((current) => Array.from(new Set(current.map((eventName) =>
+        eventName === previousEventName ? nextEventName : eventName,
+      ))));
       setAudioEventBindings((current) =>
         Object.fromEntries(
           Object.entries(current).map(([itemId, events]) => [
@@ -2876,14 +2898,7 @@ export function DesktopWorkspace() {
   );
 
   const changeAudioEventBindings = useCallback((audioId: string, events: string[]) => {
-    const uniqueEvents = Array.from(new Set(events));
-    const requestedCustomEvent = uniqueEvents.findLast((eventName) =>
-      eventName.startsWith("mcsd."),
-    );
-    const normalizedTargetEvents = uniqueEvents.filter(
-      (eventName) =>
-        !eventName.startsWith("mcsd.") || eventName === requestedCustomEvent,
-    );
+    const normalizedTargetEvents = Array.from(new Set(events.filter(Boolean)));
 
     setAudioEventWeights((current) => {
       const currentAudioWeights = current[audioId];
@@ -2901,25 +2916,59 @@ export function DesktopWorkspace() {
       else delete next[audioId];
       return next;
     });
-    setAudioEventBindings((current) => {
-      const next: Record<string, string[]> = {};
+    setAudioEventBindings((current) => ({ ...current, [audioId]: normalizedTargetEvents }));
+  }, []);
 
-      for (const [itemAudioId, itemEvents] of Object.entries(current)) {
-        const seenCustomEvents = new Set<string>();
-        next[itemAudioId] = Array.from(new Set(itemEvents)).filter((eventName) => {
-          if (!eventName.startsWith("mcsd.")) return true;
-          if (requestedCustomEvent && eventName === requestedCustomEvent && itemAudioId !== audioId) {
-            return false;
-          }
-          if (seenCustomEvents.size > 0) return false;
-          seenCustomEvents.add(eventName);
-          return true;
-        });
-      }
+  const createCustomEvent = useCallback((eventName: string) => {
+    setCustomEventNames((current) => current.includes(eventName) ? current : [...current, eventName]);
+  }, []);
 
-      next[audioId] = normalizedTargetEvents;
-      return next;
-    });
+  const renameCustomEvent = useCallback((eventName: string, nextEventName: string) => {
+    setCustomEventNames((current) => Array.from(new Set(current.map((item) => item === eventName ? nextEventName : item))));
+    setCustomEventSuffixes((current) => Object.fromEntries(Object.entries(current).map(([audioId, suffix]) => [
+      audioId,
+      `mcsd.${suffix}` === eventName ? nextEventName.slice("mcsd.".length) : suffix,
+    ])));
+    setAudioEventBindings((current) => Object.fromEntries(Object.entries(current).map(([audioId, events]) => [
+      audioId,
+      Array.from(new Set(events.map((item) => item === eventName ? nextEventName : item))),
+    ])));
+    setAudioEventWeights((current) => Object.fromEntries(Object.entries(current).map(([audioId, weights]) => {
+      if (!(eventName in weights)) return [audioId, weights];
+      const next = { ...weights, [nextEventName]: weights[eventName] };
+      delete next[eventName];
+      return [audioId, next];
+    })));
+  }, []);
+
+  const deleteEvent = useCallback((eventName: string) => {
+    setCustomEventNames((current) => current.filter((item) => item !== eventName));
+    setAudioEventBindings((current) => Object.fromEntries(Object.entries(current).map(([audioId, events]) => [
+      audioId,
+      events.filter((item) => item !== eventName),
+    ])));
+    setAudioEventWeights((current) => Object.fromEntries(Object.entries(current).flatMap(([audioId, weights]) => {
+      if (!(eventName in weights)) return [[audioId, weights]];
+      const next = { ...weights };
+      delete next[eventName];
+      return Object.keys(next).length > 0 ? [[audioId, next]] : [];
+    })));
+  }, []);
+
+  const replaceEvent = useCallback((eventName: string, nextEventName: string) => {
+    setCustomEventNames((current) => Array.from(new Set(current.map((item) =>
+      item === eventName ? nextEventName : item,
+    ))));
+    setAudioEventBindings((current) => Object.fromEntries(Object.entries(current).map(([audioId, events]) => [
+      audioId,
+      Array.from(new Set(events.map((item) => item === eventName ? nextEventName : item))),
+    ])));
+    setAudioEventWeights((current) => Object.fromEntries(Object.entries(current).map(([audioId, weights]) => {
+      if (!(eventName in weights)) return [audioId, weights];
+      const next = { ...weights, [nextEventName]: weights[eventName] };
+      delete next[eventName];
+      return [audioId, next];
+    })));
   }, []);
 
   const changeAudioEventWeight = useCallback(
@@ -3056,6 +3105,7 @@ export function DesktopWorkspace() {
           previewLoadingAudioId={previewLoadingAudioId}
           previewErrorAudioId={previewErrorAudioId}
           customEventSuffixes={customEventSuffixes}
+          customEventNames={customEventNames}
           audioEventBindings={audioEventBindings}
           audioEventWeights={audioEventWeights}
           audioSubtitles={audioSubtitles}
@@ -3075,7 +3125,10 @@ export function DesktopWorkspace() {
           onPreviewAudio={(audio) => void toggleAudioPreview(audio)}
           onRemoveAudio={removeAudioFile}
           onPrepareAudio={() => void prepareAudioFilesAndContinue()}
-          onCustomEventChange={changeCustomEventSuffix}
+          onCreateCustomEvent={createCustomEvent}
+          onRenameCustomEvent={renameCustomEvent}
+          onDeleteEvent={deleteEvent}
+          onReplaceEvent={replaceEvent}
           onEventBindingsChange={changeAudioEventBindings}
           onEventWeightChange={changeAudioEventWeight}
           onSubtitleChange={changeAudioSubtitle}
@@ -3560,13 +3613,14 @@ export function DesktopWorkspace() {
                     <h2>{c.stepMap}</h2>
                   </div>
                   {isMobileWorkspace ? (
-                    <span className="mobile-basic-mode">{c.basic}</span>
+                    <span className="mobile-basic-mode">{c.novice}</span>
                   ) : (
                     <SegmentControl
                       label={c.eventEditorMode}
                       value={eventEditorMode}
                       onChange={changeEventEditorMode}
                       options={[
+                        { value: "novice", label: c.novice },
                         { value: "basic", label: c.basic },
                         { value: "advanced", label: c.advanced },
                       ]}
@@ -3574,6 +3628,31 @@ export function DesktopWorkspace() {
                   )}
                 </div>
                 <div className="workspace-panel__body">
+                  {visibleEventEditorMode === "novice" ? (
+                    <NoviceEventManager
+                      audioFiles={audioFiles}
+                      customEventSuffixes={customEventSuffixes}
+                      customEventNames={customEventNames}
+                      eventBindings={audioEventBindings}
+                      eventWeights={audioEventWeights}
+                      audioSubtitles={audioSubtitles}
+                      language={language}
+                      previewingAudioId={previewingAudioId}
+                      previewLoadingAudioId={previewLoadingAudioId}
+                      previewErrorAudioId={previewErrorAudioId}
+                      playPreviewLabel={c.playPreview}
+                      pausePreviewLabel={c.pausePreview}
+                      retryPreviewLabel={c.retryPreview}
+                      onPreviewAudio={previewAudioById}
+                      onEventBindingsChange={changeAudioEventBindings}
+                      onEventWeightChange={changeAudioEventWeight}
+                      onSubtitleChange={changeAudioSubtitle}
+                      onCreateCustomEvent={createCustomEvent}
+                      onRenameCustomEvent={renameCustomEvent}
+                      onDeleteEvent={deleteEvent}
+                      onReplaceEvent={replaceEvent}
+                    />
+                  ) : null}
                   {visibleEventEditorMode === "basic" && audioFiles.length > 0 ? (
                     <div className="mapping-list">
                       {audioFiles.map((item) => {
@@ -3706,6 +3785,7 @@ export function DesktopWorkspace() {
                     eventWeights={audioEventWeights}
                     audioSubtitles={audioSubtitles}
                     customEventSuffixes={customEventSuffixes}
+                    customEventNames={customEventNames}
                     language={language}
                   />
                 </div>

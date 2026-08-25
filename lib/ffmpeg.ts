@@ -1,6 +1,7 @@
 export type FFmpegStatus = "idle" | "loading" | "success" | "error";
 export type FFmpegLoadPhase =
   | "idle"
+  | "probing-sources"
   | "downloading-core"
   | "downloading-wasm"
   | "initializing"
@@ -36,6 +37,9 @@ export const FFMPEG_VERSION = "0.12.15";
 export const FFMPEG_CORE_VERSION = "0.12.10";
 export const MINECRAFT_AUDIO_SAMPLE_RATE = 44100;
 export const MINECRAFT_AUDIO_CHANNELS = 2;
+// 单个下载源 WebAssembly 初始化的最长等待时间。部分移动浏览器在 worker 导入
+// 与 wasm 编译阶段可能长时间无响应，若不设上限会让加载遮罩无限转圈。
+export const FFMPEG_LOAD_INIT_TIMEOUT_MS = 60000;
 export const FFMPEG_CDN_BASES = [
   "https://unpkg.zhimg.com/@ffmpeg/core@0.12.10/dist/umd",
   "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd",
@@ -59,6 +63,16 @@ const SERVER_SNAPSHOT: FFmpegSnapshot = {
   totalSources: FFMPEG_CDN_BASES.length,
   error: null,
 };
+
+function yieldToBrowser(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof window === "undefined") {
+      resolve();
+      return;
+    }
+    window.requestAnimationFrame(() => resolve());
+  });
+}
 
 export class FFmpegService {
   private static instance: FFmpegService;
@@ -178,6 +192,65 @@ export class FFmpegService {
     ];
   }
 
+  private async getCdnCandidatesBySpeed(): Promise<FFmpegCdnBase[]> {
+    const fallback = this.getCdnCandidates();
+    const probeTimeoutMs = 4500;
+    let completed = 0;
+
+    this.updateSnapshot({
+      phase: "probing-sources",
+      progress: 0,
+      source: null,
+      attempt: 0,
+      totalSources: FFMPEG_CDN_BASES.length,
+      error: null,
+    });
+
+    const results = await Promise.all(
+      FFMPEG_CDN_BASES.map(async (source, index) => {
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), probeTimeoutMs);
+        const startedAt = performance.now();
+
+        try {
+          const response = await fetch(`${source}/ffmpeg-core.js`, {
+            cache: "no-store",
+            method: "HEAD",
+            signal: controller.signal,
+          });
+          if (!response.ok) return null;
+          return {
+            source,
+            latency: Math.max(1, Math.round(performance.now() - startedAt)),
+            index,
+          };
+        } catch {
+          return null;
+        } finally {
+          window.clearTimeout(timeout);
+          completed += 1;
+          this.updateSnapshot({
+            progress: Math.round((completed / FFMPEG_CDN_BASES.length) * 8),
+          });
+        }
+      }),
+    );
+
+    const available = results
+      .filter((result): result is { source: FFmpegCdnBase; latency: number; index: number } => result !== null)
+      .sort((a, b) => a.latency - b.latency || a.index - b.index)
+      .map((result) => result.source);
+    const availableSet = new Set(available);
+    const ordered = [...available, ...fallback.filter((source) => !availableSet.has(source))];
+
+    this.updateSnapshot({
+      progress: 8,
+      source: ordered[0] ?? null,
+      error: available.length === 0 ? "测速未找到可用下载源，将按后备顺序尝试。" : null,
+    });
+    return ordered;
+  }
+
   private async fetchAssetAsBlobUrl(
     url: string,
     mimeType: string,
@@ -274,7 +347,7 @@ export class FFmpegService {
         ]);
         this.fetchFile = util.fetchFile;
 
-        const candidates = this.getCdnCandidates();
+        const candidates = await this.getCdnCandidatesBySpeed();
         let lastError: unknown = null;
 
         for (let index = 0; index < candidates.length; index += 1) {
@@ -309,7 +382,22 @@ export class FFmpegService {
             objectUrls.push(wasmURL);
 
             this.updateSnapshot({ phase: "initializing", progress: 96 });
-            await candidate.load({ coreURL, wasmURL });
+            // Give React a frame to paint the loading gate before WebAssembly
+            // compilation starts, which can monopolize the main thread on mobile.
+            await yieldToBrowser();
+            // Bounded init: worker import + WebAssembly compilation can stall on
+            // some mobile browsers. Abort so we advance to the next source (or the
+            // error state) instead of spinning the loading overlay forever.
+            const initController = new AbortController();
+            const initTimeout = window.setTimeout(
+              () => initController.abort(),
+              FFMPEG_LOAD_INIT_TIMEOUT_MS,
+            );
+            try {
+              await candidate.load({ coreURL, wasmURL }, { signal: initController.signal });
+            } finally {
+              window.clearTimeout(initTimeout);
+            }
             candidate.on("progress", ({ progress }) => {
               this.updateSnapshot({
                 status: "loading",

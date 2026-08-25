@@ -31,7 +31,6 @@ type BindingMode = "custom" | "vanilla";
 type BindingLanguage = "zh" | "en";
 
 const VANILLA_EVENTS = Object.keys(vanillaSoundJava);
-const RESULT_LIMIT = 80;
 const MAX_CUSTOM_EVENT_SUFFIX_LENGTH = 8;
 
 const COPY = {
@@ -265,7 +264,7 @@ export function BasicEventBindingModal({
   const candidates = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     if (mode === "vanilla") {
-      return searchSoundEventKeys(VANILLA_EVENTS, normalizedQuery).slice(0, RESULT_LIMIT);
+      return searchSoundEventKeys(VANILLA_EVENTS, normalizedQuery);
     }
     return customEvents.filter((eventName) => {
       if (!normalizedQuery) return true;
@@ -274,7 +273,7 @@ export function BasicEventBindingModal({
           .get(eventName)
           ?.originalName.toLowerCase()
           .includes(normalizedQuery) === true;
-    }).slice(0, RESULT_LIMIT);
+    });
   }, [customEventAudioByName, customEvents, mode, query]);
 
   const addBinding = (eventName: string) => {

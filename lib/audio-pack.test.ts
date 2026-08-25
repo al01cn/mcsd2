@@ -8,6 +8,7 @@ import {
   buildCommandGroups,
   buildJavaSoundsJson,
   buildEditorManifest,
+  deriveCustomEventNames,
   buildLegacySoundMappings,
   type AudioPackBuildInput,
 } from "@/lib/audio-pack";
@@ -95,6 +96,48 @@ describe("audio pack definitions", () => {
       { name: "sounds/demo/bell", weight: 3 },
       "sounds/demo/wind",
     ]);
+  });
+
+  test("groups multiple audio files in one custom event", () => {
+    const input = {
+      ...createInput(),
+      eventBindings: {
+        one: ["mcsd.weather"],
+        two: ["mcsd.weather"],
+      },
+      eventWeights: { two: { "mcsd.weather": 3 } },
+    };
+
+    assert.deepEqual(buildJavaSoundsJson(input)["mcsd.weather"], {
+      subtitle: "Bells ring",
+      sounds: [
+        { name: "demo/bell", stream: true },
+        { name: "demo/wind", stream: true, weight: 3 },
+      ],
+    });
+    assert.deepEqual(
+      buildBedrockSoundDefinitions({ ...input, platform: "bedrock" }).sound_definitions["mcsd.weather"]?.sounds,
+      ["sounds/demo/bell", { name: "sounds/demo/wind", weight: 3 }],
+    );
+  });
+
+  test("persists empty custom and vanilla event folders in editor metadata", () => {
+    const manifest = buildEditorManifest({
+      ...createInput(),
+      customEventNames: ["mcsd.empty", "mcsd.bell", "entity.player.levelup"],
+    });
+    assert.deepEqual(manifest.customEventNames, [
+      "mcsd.empty",
+      "mcsd.bell",
+      "entity.player.levelup",
+    ]);
+  });
+
+  test("derives custom folders from legacy bindings and suffixes", () => {
+    assert.deepEqual(
+      deriveCustomEventNames({ one: "bell" }, { one: ["mcsd.weather"], two: [] }).sort(),
+      ["mcsd.bell", "mcsd.weather"],
+    );
   });
 
   test("generates platform-specific play and stop commands", () => {
@@ -357,6 +400,13 @@ describe("project content fingerprints", () => {
       createProjectContentFingerprint(project, {
         ...workspace,
         audioEventBindings: { "audio-1": ["block.note_block.bell"] },
+      }),
+      baseline,
+    );
+    assert.notEqual(
+      createProjectContentFingerprint(project, {
+        ...workspace,
+        customEventNames: ["mcsd.empty"],
       }),
       baseline,
     );

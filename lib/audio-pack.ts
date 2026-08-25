@@ -35,6 +35,7 @@ export type AudioPackBuildInput = {
   releaseChannel?: ReleaseChannel;
   gameVersion?: string;
   customEventSuffixes?: Record<string, string>;
+  customEventNames?: string[];
   audioFiles: PackAudioFile[];
   eventBindings: Record<string, string[]>;
   eventWeights?: AudioEventWeights;
@@ -91,6 +92,7 @@ export type EditorManifest = {
   project: EditorProjectMetadata;
   audioFiles: EditorAudioMetadata[];
   customEventSuffixes: Record<string, string>;
+  customEventNames?: string[];
   eventBindings: Record<string, string[]>;
   eventWeights: AudioEventWeights;
   audioSubtitles: Record<string, string>;
@@ -115,6 +117,23 @@ export type LegacySoundMappings = {
 const CUSTOM_EVENT_PREFIX = "mcsd.";
 const DEFAULT_PACK_KEY = "mcsd";
 const DEFAULT_JAVA_PACK_FORMAT = "15";
+
+export function deriveCustomEventNames(
+  customEventSuffixes: Record<string, string> | undefined,
+  eventBindings: Record<string, string[]>,
+) {
+  const names = new Set<string>();
+  for (const suffix of Object.values(customEventSuffixes ?? {})) {
+    const normalized = suffix.trim().toLowerCase().replace(/[^a-z0-9_]/g, "");
+    if (normalized) names.add(`${CUSTOM_EVENT_PREFIX}${normalized}`);
+  }
+  for (const events of Object.values(eventBindings)) {
+    for (const eventName of events) {
+      if (eventName.startsWith(CUSTOM_EVENT_PREFIX)) names.add(eventName);
+    }
+  }
+  return Array.from(names);
+}
 
 function uniqueEventNames(input: AudioPackBuildInput) {
   const seen = new Set<string>();
@@ -400,6 +419,7 @@ export function buildEditorManifest(input: AudioPackBuildInput): EditorManifest 
     },
     audioFiles,
     customEventSuffixes: input.customEventSuffixes ?? {},
+    ...(input.customEventNames ? { customEventNames: input.customEventNames } : {}),
     eventBindings: input.eventBindings,
     eventWeights: input.eventWeights ?? {},
     audioSubtitles: input.audioSubtitles ?? {},

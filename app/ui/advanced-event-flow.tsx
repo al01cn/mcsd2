@@ -123,7 +123,6 @@ type SoundEventOption = {
 
 const SOUND_EVENTS = Object.keys(vanillaSoundJava);
 const SOUND_EVENT_SET = new Set(SOUND_EVENTS);
-const EVENT_RESULT_LIMIT = 80;
 const MAX_CUSTOM_EVENT_SUFFIX_LENGTH = 8;
 const BINDING_EDGE_PREFIX = "binding:";
 const AUTO_LAYOUT_CENTER = { x: 1200, y: 900 };
@@ -1086,8 +1085,7 @@ function AdvancedEventFlowCanvas({
       .map((eventName) => ({
         eventName,
         translation: SOUND_EVENT_TRANSLATIONS.get(eventName) || undefined,
-      }))
-      .slice(0, EVENT_RESULT_LIMIT);
+      }));
   }, [nodes, replaceEvent]);
   const replacingEventName = replaceEvent
     ? nodes.find((node) => node.id === replaceEvent.nodeId)?.data.eventName
@@ -1130,7 +1128,7 @@ function AdvancedEventFlowCanvas({
       translation: SOUND_EVENT_TRANSLATIONS.get(eventName) || undefined,
       isCustomEvent: false,
     }));
-    return [...customEvents, ...vanillaEvents].slice(0, EVENT_RESULT_LIMIT);
+    return [...customEvents, ...vanillaEvents];
   }, [audioFiles, customEventSuffixes, menu?.query, usedEventIds]);
 
   const addNode = useCallback(

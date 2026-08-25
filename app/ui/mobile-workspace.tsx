@@ -15,7 +15,6 @@ import {
   Play,
   Plus,
   RefreshCcw,
-  SlidersHorizontal,
   Trash2,
   TriangleAlert,
   Upload,
@@ -23,7 +22,7 @@ import {
 import { WaveformIcon } from "@phosphor-icons/react";
 import Image from "next/image";
 import type { ReactNode, RefObject } from "react";
-import { BasicEventBindingModal } from "@/app/ui/basic-event-binding-modal";
+import { NoviceEventManager } from "@/app/ui/novice-event-manager";
 import {
   CreateOrImportModal,
   type NewProjectData,
@@ -101,7 +100,6 @@ const COPY = {
     eventBinding: "声音事件",
     subtitle: "游戏内字幕",
     subtitleHint: "可选，留空则不生成字幕",
-    basicOnly: "基础模式",
     noEvents: "先添加音频",
     noEventsHint: "移动端只提供基础事件绑定，添加音频后即可设置。",
     nextExport: "检查并导出",
@@ -140,7 +138,6 @@ const COPY = {
     eventBinding: "Sound event",
     subtitle: "In-game subtitle",
     subtitleHint: "Optional. Leave empty to omit it.",
-    basicOnly: "Basic mode",
     noEvents: "Add audio first",
     noEventsHint: "Mobile includes the basic event editor only.",
     nextExport: "Review and export",
@@ -198,6 +195,7 @@ export function MobileWorkspace({
   previewLoadingAudioId,
   previewErrorAudioId,
   customEventSuffixes,
+  customEventNames,
   audioEventBindings,
   audioEventWeights,
   audioSubtitles,
@@ -213,7 +211,10 @@ export function MobileWorkspace({
   onPreviewAudio,
   onRemoveAudio,
   onPrepareAudio,
-  onCustomEventChange,
+  onCreateCustomEvent,
+  onRenameCustomEvent,
+  onDeleteEvent,
+  onReplaceEvent,
   onEventBindingsChange,
   onEventWeightChange,
   onSubtitleChange,
@@ -239,6 +240,7 @@ export function MobileWorkspace({
   previewLoadingAudioId: string | null;
   previewErrorAudioId: string | null;
   customEventSuffixes: Record<string, string>;
+  customEventNames: string[];
   audioEventBindings: Record<string, string[]>;
   audioEventWeights: AudioEventWeights;
   audioSubtitles: Record<string, string>;
@@ -254,7 +256,10 @@ export function MobileWorkspace({
   onPreviewAudio: (audio: MobileAudio) => void;
   onRemoveAudio: (audioId: string) => void;
   onPrepareAudio: () => void;
-  onCustomEventChange: (audioId: string, suffix: string) => void;
+  onCreateCustomEvent: (eventName: string) => void;
+  onRenameCustomEvent: (eventName: string, nextEventName: string) => void;
+  onDeleteEvent: (eventName: string) => void;
+  onReplaceEvent: (eventName: string, nextEventName: string) => void;
   onEventBindingsChange: (audioId: string, events: string[]) => void;
   onEventWeightChange: (audioId: string, eventName: string, weight: number) => void;
   onSubtitleChange: (audioId: string, subtitle: string) => void;
@@ -381,7 +386,6 @@ export function MobileWorkspace({
                 <span>{selectedProject?.name}</span>
                 <h1>{workflowSteps[activeStep]}</h1>
               </div>
-              {activeStep === 1 ? <span className="mobile-mode-chip">{c.basicOnly}</span> : null}
             </section>
 
             <ol className="mobile-step-bar" aria-label="Workflow steps">
@@ -531,65 +535,32 @@ export function MobileWorkspace({
 
             {activeStep === 1 ? (
               <section className="mobile-event-screen">
-                {audioFiles.length > 0 ? (
-                  <div className="mobile-event-list">
-                    {audioFiles.map((audio) => {
-                      const isPlaying = previewingAudioId === audio.id;
-                      const previewLabel = previewErrorAudioId === audio.id
-                        ? c.retry
-                        : isPlaying ? c.pause : c.play;
-                      return (
-                        <article key={audio.id} className="mobile-event-item">
-                          <header>
-                            <Button
-                              isIconOnly
-                              aria-label={previewLabel}
-                              aria-pressed={isPlaying}
-                              className="mobile-event-item__play"
-                              onPress={() => onPreviewAudio(audio)}
-                            >
-                              {renderPreviewIcon(audio)}
-                            </Button>
-                            <div>
-                              <strong>{audio.name}</strong>
-                              <code>{audio.key}</code>
-                            </div>
-                          </header>
-                          <div className="mobile-event-field">
-                            <span>{c.eventBinding}</span>
-                            <BasicEventBindingModal
-                              audio={audio}
-                              allAudio={audioFiles}
-                              customEventSuffixes={customEventSuffixes}
-                              boundEvents={audioEventBindings[audio.id] ?? []}
-                              eventBindings={audioEventBindings}
-                              eventWeights={audioEventWeights}
-                              language={language}
-                              onCustomEventChange={onCustomEventChange}
-                              onChange={(events) => onEventBindingsChange(audio.id, events)}
-                              onWeightChange={onEventWeightChange}
-                              variant="mobile"
-                            />
-                          </div>
-                          <label className="mobile-event-field">
-                            <span>{c.subtitle}</span>
-                            <input
-                              value={audioSubtitles[audio.id] ?? ""}
-                              placeholder={c.subtitleHint}
-                              onChange={(event) => onSubtitleChange(audio.id, event.target.value)}
-                            />
-                          </label>
-                        </article>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="mobile-empty-state">
-                    <SlidersHorizontal aria-hidden="true" size={28} />
-                    <strong>{c.noEvents}</strong>
-                    <p>{c.noEventsHint}</p>
-                  </div>
-                )}
+                <NoviceEventManager
+                  audioFiles={audioFiles}
+                  customEventSuffixes={customEventSuffixes}
+                  customEventNames={customEventNames}
+                  eventBindings={audioEventBindings}
+                  eventWeights={audioEventWeights}
+                  audioSubtitles={audioSubtitles}
+                  language={language}
+                  previewingAudioId={previewingAudioId}
+                  previewLoadingAudioId={previewLoadingAudioId}
+                  previewErrorAudioId={previewErrorAudioId}
+                  playPreviewLabel={c.play}
+                  pausePreviewLabel={c.pause}
+                  retryPreviewLabel={c.retry}
+                  onPreviewAudio={(audioId) => {
+                    const audio = audioFiles.find((item) => item.id === audioId);
+                    if (audio) onPreviewAudio(audio);
+                  }}
+                  onEventBindingsChange={onEventBindingsChange}
+                  onEventWeightChange={onEventWeightChange}
+                  onSubtitleChange={onSubtitleChange}
+                  onCreateCustomEvent={onCreateCustomEvent}
+                  onRenameCustomEvent={onRenameCustomEvent}
+                  onDeleteEvent={onDeleteEvent}
+                  onReplaceEvent={onReplaceEvent}
+                />
                 <div className="mobile-screen-actions">
                   <Button className="mobile-secondary-action" onPress={() => onStepChange(0)}>
                     <ArrowLeft aria-hidden="true" size={18} />
@@ -616,6 +587,7 @@ export function MobileWorkspace({
                   eventWeights={audioEventWeights}
                   audioSubtitles={audioSubtitles}
                   customEventSuffixes={customEventSuffixes}
+                  customEventNames={customEventNames}
                   language={language}
                   variant="mobile"
                 />

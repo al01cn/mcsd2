@@ -51,6 +51,7 @@ type ExportProject = {
   version?: string;
   releaseChannel?: ReleaseChannel;
   customEventSuffixes?: Record<string, string>;
+  customEventNames?: string[];
 };
 
 const COPY = {
@@ -154,6 +155,7 @@ export function ExportWorkspace({
   eventWeights,
   audioSubtitles,
   customEventSuffixes,
+  customEventNames,
   language,
   variant = "desktop",
 }: {
@@ -163,6 +165,7 @@ export function ExportWorkspace({
   eventWeights: AudioEventWeights;
   audioSubtitles: Record<string, string>;
   customEventSuffixes?: Record<string, string>;
+  customEventNames?: string[];
   language: "zh" | "en";
   variant?: "desktop" | "mobile";
 }) {
@@ -204,7 +207,8 @@ export function ExportWorkspace({
     eventWeights,
     audioSubtitles,
     customEventSuffixes,
-  }), [audioFiles, audioSubtitles, customEventSuffixes, eventBindings, eventWeights, platform, project]);
+    customEventNames,
+  }), [audioFiles, audioSubtitles, customEventNames, customEventSuffixes, eventBindings, eventWeights, platform, project]);
   const commandGroups = useMemo(() => buildCommandGroups(input), [input]);
   const allCommands = useMemo(
     () => commandGroups.flatMap((group) => group.lines),

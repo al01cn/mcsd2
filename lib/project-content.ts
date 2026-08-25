@@ -57,6 +57,7 @@ export function createProjectContentFingerprint(
       blobType: audio.blob.type,
     })),
     customEventSuffixes: sortedEntries(workspace.customEventSuffixes),
+    ...(workspace.customEventNames ? { customEventNames: [...workspace.customEventNames].sort() } : {}),
     audioEventBindings: sortedEntries(workspace.audioEventBindings),
     ...(audioEventWeights.length > 0 ? { audioEventWeights } : {}),
     ...(audioSubtitles.length > 0 ? { audioSubtitles } : {}),
