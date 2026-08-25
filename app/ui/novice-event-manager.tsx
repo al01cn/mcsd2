@@ -91,7 +91,7 @@ const COPY = {
     searchEvent: "搜索声音事件",
     added: "已添加",
     modify: "修改",
-    replaceItem: "替换",
+    changeItem: "更改",
     removeItem: "移除",
     rename: "重命名",
     delete: "删除事件",
@@ -116,6 +116,7 @@ const COPY = {
     replaceSearch: "搜索 Minecraft 声音事件",
     noResults: "没有匹配的事件",
     close: "关闭",
+    cancel: "取消",
     edit: "编辑",
     drag: "拖动音频",
   },
@@ -131,7 +132,7 @@ const COPY = {
     searchEvent: "Search sound events",
     added: "Added",
     modify: "Edit",
-    replaceItem: "Replace",
+    changeItem: "Change",
     removeItem: "Remove",
     rename: "Rename",
     delete: "Delete event",
@@ -156,6 +157,7 @@ const COPY = {
     replaceSearch: "Search Minecraft sound events",
     noResults: "No matching events",
     close: "Close",
+    cancel: "Cancel",
     edit: "Edit",
     drag: "Drag audio",
   },
@@ -576,6 +578,13 @@ export function NoviceEventManager({
             style={{ left: contextMenu.x, top: contextMenu.y }}
             onContextMenu={(event) => event.preventDefault()}
           >
+          {contextMenuSource === "touch" ? (
+            <div className="mobile-action-sheet__header">
+              {contextMenu.kind === "folder"
+                ? eventLabel(contextMenu.eventName, language)
+                : (audioFiles.find((audio) => audio.id === contextMenu.audioId)?.name ?? c.files)}
+            </div>
+          ) : null}
           {contextMenu.kind === "folder" ? (
             <>
               {contextMenu.eventName !== UNASSIGNED_EVENT && isCustomEvent(contextMenu.eventName) ? (
@@ -584,7 +593,7 @@ export function NoviceEventManager({
                 </button>
               ) : contextMenu.eventName !== UNASSIGNED_EVENT ? (
                 <button type="button" role="menuitem" onClick={() => { setReplaceEvent(contextMenu.eventName); setReplaceQuery(""); setContextMenu(null); }}>
-                  <RefreshCcw aria-hidden="true" size={15} /> {c.replaceItem}
+                  <RefreshCcw aria-hidden="true" size={15} /> {c.changeItem}
                 </button>
               ) : null}
               {contextMenu.eventName !== UNASSIGNED_EVENT ? (
@@ -599,7 +608,7 @@ export function NoviceEventManager({
                 <PencilLine aria-hidden="true" size={15} /> {c.modify}
               </button>
               <button type="button" role="menuitem" onClick={() => { setMoveSourceEvent(selectedEvent === UNASSIGNED_EVENT ? null : selectedEvent); setMovingAudioIds([contextMenu.audioId]); setContextMenu(null); }}>
-                <RefreshCcw aria-hidden="true" size={15} /> {c.replaceItem}
+                <FolderInput aria-hidden="true" size={15} /> {c.changeItem}
               </button>
               {selectedEvent !== UNASSIGNED_EVENT ? (
                 <button type="button" role="menuitem" className="is-danger" onClick={() => { removeAudioFromEvent(contextMenu.audioId, selectedEvent); setContextMenu(null); }}>
@@ -608,6 +617,11 @@ export function NoviceEventManager({
               ) : null}
             </>
           )}
+          {contextMenuSource === "touch" ? (
+            <button type="button" role="menuitem" className="is-cancel" onClick={() => setContextMenu(null)}>
+              {c.cancel}
+            </button>
+          ) : null}
           </div>
         </>
       ) : null}

@@ -96,7 +96,7 @@ export default async function RootLayout({
     applicationCategory: "MultimediaApplication",
     operatingSystem: "Any",
     browserRequirements: "Requires a modern browser with WebAssembly support",
-    softwareVersion: "2.0.1",
+    softwareVersion: "2.1.0",
     isAccessibleForFree: true,
     inLanguage: ["zh-CN", "en"],
     codeRepository: "https://github.com/al01cn/mcsd2",

@@ -766,13 +766,13 @@ const COPY = {
 
 const FAQ = {
   zh: [
-    ["MCSD2 可以制作什么？", "MCSD2 将音频转换为 Minecraft Java 版可用的声音资源包，并生成对应的事件映射。"],
+    ["MCSD2 可以制作什么？", "MCSD2 将音频转换为 Minecraft Java 版与基岩版可用的声音资源包，并生成对应的事件映射。"],
     ["音频会上传到服务器吗？", "不会。音频转换由浏览器中的 FFmpeg WASM 完成，源文件不会离开当前设备。"],
     ["支持哪些音频格式？", "当前导入界面接受 MP3、WAV、FLAC、M4A 与 OGG 文件。"],
     ["为什么 FFmpeg 无法加载？", "可以在设置中更换下载源。下载源列表会显示当前网络下的可用状态和真实延迟。"],
   ],
   en: [
-    ["What can MCSD2 build?", "MCSD2 converts audio into a sound resource pack for Minecraft Java Edition and prepares event mappings."],
+    ["What can MCSD2 build?", "MCSD2 converts audio into a sound resource pack for Minecraft Java and Bedrock Edition, and prepares event mappings."],
     ["Are audio files uploaded?", "No. FFmpeg WASM runs in the browser, so source files remain on this device."],
     ["Which formats are supported?", "The current importer accepts MP3, WAV, FLAC, M4A and OGG files."],
     ["Why did FFmpeg fail to load?", "Change the download source in Settings. The source list shows live availability and latency for this network."],
@@ -2812,6 +2812,70 @@ export function DesktopWorkspace() {
     );
   }
 
+  // 修改单个音频的 key。返回 null 表示成功，否则返回错误码（供 UI 展示提示）。
+  function renameAudioKey(audioId: string, rawKey: string): string | null {
+    if (isPreparingAudio) return null;
+    const audio = audioFiles.find((item) => item.id === audioId);
+    if (!audio) return null;
+
+    const normalized = rawKey
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, "")
+      .slice(0, MAX_AUDIO_KEY_LENGTH);
+
+    if (!normalized) return "empty";
+    if (normalized === audio.key) return null;
+
+    const duplicate = audioFiles.some(
+      (item) => item.id !== audioId && item.key === normalized,
+    );
+    if (duplicate) return "duplicate";
+
+    const previousKey = audio.key;
+    const previousSuffix = customEventSuffixes[audioId];
+
+    setAudioFiles((current) =>
+      current.map((item) =>
+        item.id === audioId ? { ...item, key: normalized } : item,
+      ),
+    );
+
+    // 默认事件名基于 key（mcsd.<key>）。若事件后缀仍等于旧 key（尚未被自定义），
+    // 则让它跟随新 key，并联动更新事件名、绑定与权重。
+    if (previousSuffix === previousKey) {
+      const previousEventName = `mcsd.${previousKey}`;
+      const nextEventName = `mcsd.${normalized}`;
+      setCustomEventSuffixes((current) => ({ ...current, [audioId]: normalized }));
+      setCustomEventNames((current) =>
+        Array.from(new Set(current.map((eventName) =>
+          eventName === previousEventName ? nextEventName : eventName,
+        ))),
+      );
+      setAudioEventBindings((current) =>
+        Object.fromEntries(
+          Object.entries(current).map(([itemId, events]) => [
+            itemId,
+            Array.from(new Set(events.map((eventName) =>
+              eventName === previousEventName ? nextEventName : eventName,
+            ))),
+          ]),
+        ),
+      );
+      setAudioEventWeights((current) =>
+        Object.fromEntries(
+          Object.entries(current).map(([itemId, weights]) => {
+            if (!(previousEventName in weights)) return [itemId, weights];
+            const next = { ...weights, [nextEventName]: weights[previousEventName] };
+            delete next[previousEventName];
+            return [itemId, next];
+          }),
+        ),
+      );
+    }
+
+    return null;
+  }
+
   function goToStep(step: number) {
     stopAudioPreview();
     setActiveStep(step);
@@ -3124,6 +3188,7 @@ export function DesktopWorkspace() {
           onFiles={handleFiles}
           onPreviewAudio={(audio) => void toggleAudioPreview(audio)}
           onRemoveAudio={removeAudioFile}
+          onRenameAudioKey={renameAudioKey}
           onPrepareAudio={() => void prepareAudioFilesAndContinue()}
           onCreateCustomEvent={createCustomEvent}
           onRenameCustomEvent={renameCustomEvent}

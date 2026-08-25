@@ -3,11 +3,13 @@
 import { Button, Dropdown, Label } from "@heroui/react";
 import {
   ArrowLeft,
+  ArrowRight,
   Check,
   ChevronRight,
   EllipsisVertical,
   FileAudio,
   FolderOpen,
+  KeyRound,
   LoaderCircle,
   PackageOpen,
   Pause,
@@ -18,9 +20,11 @@ import {
   Trash2,
   TriangleAlert,
   Upload,
+  X,
 } from "lucide-react";
 import { WaveformIcon } from "@phosphor-icons/react";
 import Image from "next/image";
+import { useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import { NoviceEventManager } from "@/app/ui/novice-event-manager";
 import {
@@ -94,6 +98,14 @@ const COPY = {
     convert: "转换并设置事件",
     converting: "正在处理",
     remove: "删除音频",
+    removeAction: "移除",
+    modifyKey: "修改 key",
+    keyLabel: "音频 key",
+    keyPlaceholder: "小写字母、数字、下划线，最多 8 位",
+    keyEmptyError: "key 不能为空",
+    keyDuplicateError: "该 key 已被其他音频使用",
+    cancel: "取消",
+    save: "保存",
     play: "播放预览",
     pause: "暂停预览",
     retry: "预览失败，点击重试",
@@ -104,6 +116,7 @@ const COPY = {
     noEventsHint: "移动端只提供基础事件绑定，添加音频后即可设置。",
     nextExport: "检查并导出",
     previous: "上一步",
+    next: "下一步",
     restart: "返回音频",
     settings: "设置",
   },
@@ -132,6 +145,14 @@ const COPY = {
     convert: "Convert and set events",
     converting: "Processing",
     remove: "Remove audio",
+    removeAction: "Remove",
+    modifyKey: "Change key",
+    keyLabel: "Audio key",
+    keyPlaceholder: "Lowercase letters, numbers, underscores, up to 8",
+    keyEmptyError: "Key cannot be empty",
+    keyDuplicateError: "This key is already in use",
+    cancel: "Cancel",
+    save: "Save",
     play: "Play preview",
     pause: "Pause preview",
     retry: "Preview failed, tap to retry",
@@ -142,6 +163,7 @@ const COPY = {
     noEventsHint: "Mobile includes the basic event editor only.",
     nextExport: "Review and export",
     previous: "Previous",
+    next: "Next",
     restart: "Back to audio",
     settings: "Settings",
   },
@@ -210,6 +232,7 @@ export function MobileWorkspace({
   onFiles,
   onPreviewAudio,
   onRemoveAudio,
+  onRenameAudioKey,
   onPrepareAudio,
   onCreateCustomEvent,
   onRenameCustomEvent,
@@ -255,6 +278,7 @@ export function MobileWorkspace({
   onFiles: (files: FileList | File[]) => void;
   onPreviewAudio: (audio: MobileAudio) => void;
   onRemoveAudio: (audioId: string) => void;
+  onRenameAudioKey: (audioId: string, nextKey: string) => string | null;
   onPrepareAudio: () => void;
   onCreateCustomEvent: (eventName: string) => void;
   onRenameCustomEvent: (eventName: string, nextEventName: string) => void;
@@ -267,6 +291,44 @@ export function MobileWorkspace({
 }) {
   const c = COPY[language];
   const workflowSteps = [c.audio, c.events, c.export];
+
+  const [actionSheetAudioId, setActionSheetAudioId] = useState<string | null>(null);
+  const [keyEditorAudioId, setKeyEditorAudioId] = useState<string | null>(null);
+  const [keyEditorValue, setKeyEditorValue] = useState("");
+  const [keyEditorError, setKeyEditorError] = useState<string | null>(null);
+  const longPressRef = useRef<number | null>(null);
+
+  const clearLongPress = () => {
+    if (longPressRef.current !== null) window.clearTimeout(longPressRef.current);
+    longPressRef.current = null;
+  };
+
+  const startLongPress = (audioId: string) => {
+    if (isPreparingAudio) return;
+    clearLongPress();
+    longPressRef.current = window.setTimeout(() => {
+      setActionSheetAudioId(audioId);
+      longPressRef.current = null;
+    }, 450);
+  };
+
+  const openKeyEditor = (audioId: string) => {
+    const audio = audioFiles.find((item) => item.id === audioId);
+    setKeyEditorAudioId(audioId);
+    setKeyEditorValue(audio?.key ?? "");
+    setKeyEditorError(null);
+  };
+
+  const submitKeyEditor = () => {
+    if (!keyEditorAudioId) return;
+    const error = onRenameAudioKey(keyEditorAudioId, keyEditorValue);
+    if (error) {
+      setKeyEditorError(error === "duplicate" ? c.keyDuplicateError : c.keyEmptyError);
+      return;
+    }
+    setKeyEditorAudioId(null);
+    setKeyEditorError(null);
+  };
 
   const renderPreviewIcon = (audio: MobileAudio) => {
     if (previewLoadingAudioId === audio.id) {
@@ -388,24 +450,63 @@ export function MobileWorkspace({
               </div>
             </section>
 
-            <ol className="mobile-step-bar" aria-label="Workflow steps">
-              {workflowSteps.map((label, index) => {
-                const isComplete = activeStep > index;
-                const isActive = activeStep === index;
-                return (
-                  <li
-                    key={label}
-                    className={isActive ? "is-active" : isComplete ? "is-complete" : undefined}
-                    aria-current={isActive ? "step" : undefined}
-                  >
-                    <span className="mobile-step-bar__marker">
-                      {isComplete ? <Check aria-hidden="true" size={15} /> : `0${index + 1}`}
-                    </span>
-                    <strong>{label}</strong>
-                  </li>
-                );
-              })}
-            </ol>
+            <div className="mobile-step-header">
+              <ol className="mobile-step-bar" aria-label="Workflow steps">
+                {workflowSteps.map((label, index) => {
+                  const isComplete = activeStep > index;
+                  const isActive = activeStep === index;
+                  return (
+                    <li
+                      key={label}
+                      className={isActive ? "is-active" : isComplete ? "is-complete" : undefined}
+                      aria-current={isActive ? "step" : undefined}
+                    >
+                      <span className="mobile-step-bar__marker">
+                        {isComplete ? <Check aria-hidden="true" size={15} /> : `0${index + 1}`}
+                      </span>
+                      <strong>{label}</strong>
+                    </li>
+                  );
+                })}
+              </ol>
+              <div className="mobile-step-nav">
+                <Button
+                  isIconOnly
+                  aria-label={c.previous}
+                  className="mobile-step-nav__button"
+                  isDisabled={activeStep === 0 || isPreparingAudio}
+                  onPress={() => onStepChange(activeStep - 1)}
+                >
+                  <ArrowLeft aria-hidden="true" size={18} />
+                </Button>
+                <Button
+                  isIconOnly
+                  aria-label={activeStep === 0 ? c.convert : c.next}
+                  className="mobile-step-nav__button mobile-step-nav__button--primary"
+                  isDisabled={
+                    activeStep === 2 ||
+                    (activeStep === 0 && (audioFiles.length === 0 || isPreparingAudio))
+                  }
+                  onPress={() => {
+                    if (activeStep === 0) onPrepareAudio();
+                    else onStepChange(activeStep + 1);
+                  }}
+                >
+                  {activeStep === 0 && isPreparingAudio ? (
+                    <LoaderCircle aria-hidden="true" className="mobile-spin" size={18} />
+                  ) : (
+                    <ArrowRight aria-hidden="true" size={18} />
+                  )}
+                </Button>
+              </div>
+            </div>
+
+            {activeStep === 0 && isPreparingAudio ? (
+              <div className="mobile-convert-progress" role="status">
+                <LoaderCircle aria-hidden="true" className="mobile-spin" size={14} />
+                <span>{c.converting} {preparingAudioIndex}/{audioFiles.length} · {audioConversionProgress}%</span>
+              </div>
+            ) : null}
 
             {activeStep === 0 ? (
               <section className="mobile-audio-screen">
@@ -445,7 +546,17 @@ export function MobileWorkspace({
                         : isPlaying ? c.pause : c.play;
                       const processing = audio.conversionStatus !== "idle";
                       return (
-                        <article key={audio.id} className="mobile-audio-item">
+                        <article
+                          key={audio.id}
+                          className="mobile-audio-item"
+                          onContextMenu={(event) => event.preventDefault()}
+                          onPointerDown={(event) => {
+                            if (event.pointerType === "mouse") return;
+                            startLongPress(audio.id);
+                          }}
+                          onPointerUp={clearLongPress}
+                          onPointerCancel={clearLongPress}
+                        >
                           <div className="mobile-audio-item__wave" aria-hidden="true">
                             {WAVEFORM.map((height, barIndex) => (
                               <span
@@ -512,24 +623,6 @@ export function MobileWorkspace({
                     {audioPreparationError}
                   </p>
                 ) : null}
-
-                <Button
-                  className="mobile-primary-action"
-                  isDisabled={audioFiles.length === 0 || isPreparingAudio}
-                  onPress={onPrepareAudio}
-                >
-                  {isPreparingAudio ? (
-                    <>
-                      <LoaderCircle aria-hidden="true" className="mobile-spin" size={18} />
-                      {c.converting} {preparingAudioIndex}/{audioFiles.length} · {audioConversionProgress}%
-                    </>
-                  ) : (
-                    <>
-                      {c.convert}
-                      <ChevronRight aria-hidden="true" size={19} />
-                    </>
-                  )}
-                </Button>
               </section>
             ) : null}
 
@@ -561,20 +654,6 @@ export function MobileWorkspace({
                   onDeleteEvent={onDeleteEvent}
                   onReplaceEvent={onReplaceEvent}
                 />
-                <div className="mobile-screen-actions">
-                  <Button className="mobile-secondary-action" onPress={() => onStepChange(0)}>
-                    <ArrowLeft aria-hidden="true" size={18} />
-                    {c.previous}
-                  </Button>
-                  <Button
-                    className="mobile-primary-action"
-                    isDisabled={audioFiles.length === 0}
-                    onPress={() => onStepChange(2)}
-                  >
-                    {c.nextExport}
-                    <ChevronRight aria-hidden="true" size={19} />
-                  </Button>
-                </div>
               </section>
             ) : null}
 
@@ -591,22 +670,104 @@ export function MobileWorkspace({
                   language={language}
                   variant="mobile"
                 />
-                <div className="mobile-screen-actions">
-                  <Button className="mobile-secondary-action" onPress={() => onStepChange(1)}>
-                    <ArrowLeft aria-hidden="true" size={18} />
-                    {c.previous}
-                  </Button>
-                  <Button className="mobile-primary-action" onPress={onReturnToAudio}>
-                    <RefreshCcw aria-hidden="true" size={18} />
-                    {c.restart}
-                  </Button>
-                </div>
+                <Button className="mobile-primary-action" onPress={onReturnToAudio}>
+                  <RefreshCcw aria-hidden="true" size={18} />
+                  {c.restart}
+                </Button>
               </section>
             ) : null}
           </>
         )}
         {view === "home" ? <ComplianceFooter visible={showComplianceInfo} /> : null}
       </main>
+
+      {actionSheetAudioId ? (() => {
+        const target = audioFiles.find((item) => item.id === actionSheetAudioId);
+        return (
+          <>
+            <div
+              className="novice-context-menu-backdrop"
+              onClick={() => setActionSheetAudioId(null)}
+              aria-hidden="true"
+            />
+            <div className="novice-context-menu is-touch" role="menu" aria-label={c.more}>
+              {target ? <div className="mobile-action-sheet__header">{target.name}</div> : null}
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  const id = actionSheetAudioId;
+                  setActionSheetAudioId(null);
+                  openKeyEditor(id);
+                }}
+              >
+                <KeyRound aria-hidden="true" size={15} /> {c.modifyKey}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="is-danger"
+                onClick={() => {
+                  const id = actionSheetAudioId;
+                  setActionSheetAudioId(null);
+                  onRemoveAudio(id);
+                }}
+              >
+                <Trash2 aria-hidden="true" size={15} /> {c.removeAction}
+              </button>
+            </div>
+          </>
+        );
+      })() : null}
+
+      {keyEditorAudioId ? (
+        <div
+          className="novice-event-manager__overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label={c.modifyKey}
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setKeyEditorAudioId(null);
+          }}
+        >
+          <form
+            className="novice-event-manager__move-dialog novice-event-manager__rename-dialog"
+            onSubmit={(event) => {
+              event.preventDefault();
+              submitKeyEditor();
+            }}
+          >
+            <header>
+              <strong>{c.modifyKey}</strong>
+              <button type="button" aria-label={c.cancel} onClick={() => setKeyEditorAudioId(null)}>
+                <X aria-hidden="true" size={16} />
+              </button>
+            </header>
+            <input
+              autoFocus
+              value={keyEditorValue}
+              aria-label={c.keyLabel}
+              placeholder={c.keyPlaceholder}
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              onChange={(event) => {
+                setKeyEditorValue(event.target.value);
+                setKeyEditorError(null);
+              }}
+            />
+            {keyEditorError ? (
+              <p className="mobile-key-editor__error" role="alert">
+                <TriangleAlert aria-hidden="true" size={14} />
+                {keyEditorError}
+              </p>
+            ) : null}
+            <button type="submit" className="wiki-button wiki-button--primary">
+              <Check aria-hidden="true" size={15} /> {c.save}
+            </button>
+          </form>
+        </div>
+      ) : null}
 
     </div>
   );
