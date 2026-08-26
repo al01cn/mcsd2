@@ -1,6 +1,6 @@
 "use client";
 
-import { Accordion, Button, Dropdown, Label, Modal, Switch } from "@heroui/react";
+import { Accordion, Button, Dropdown, Label, Modal, Popover, Switch } from "@heroui/react";
 import {
   ArrowLeft,
   Check,
@@ -18,6 +18,7 @@ import {
   HardDrive,
   History,
   Ellipsis,
+  Info,
   LoaderCircle,
   PackageOpen,
   Pause,
@@ -592,6 +593,7 @@ const COPY = {
     storageManagement: "容量管理",
     projectStorage: "工程数据占用",
     browserStorage: "浏览器存储",
+    browserStorageInfo: "浏览器存储根据当前设备和浏览器而定，不是云存储。更换设备或浏览器后，数据不会自动同步。",
     currentData: "当前",
     historyData: "历史",
     historyCount: "个版本",
@@ -728,6 +730,7 @@ const COPY = {
     storageManagement: "Storage management",
     projectStorage: "Project storage",
     browserStorage: "Browser storage",
+    browserStorageInfo: "Browser storage is tied to this device and browser, not cloud storage. Data is not automatically synced when you switch devices or browsers.",
     currentData: "Current",
     historyData: "History",
     historyCount: "versions",
@@ -1468,7 +1471,19 @@ function GlobalTools({
                         <strong>{formatAudioFileSize(trackedStorageBytes)}</strong>
                       </div>
                       <div>
-                        <span>{c.browserStorage}</span>
+                        <div className="storage-overview__label">
+                          <span>{c.browserStorage}</span>
+                          <Popover>
+                            <Popover.Trigger>
+                              <button type="button" className="storage-overview__info" aria-label={c.browserStorage}>
+                                <Info aria-hidden="true" size={12} />
+                              </button>
+                            </Popover.Trigger>
+                            <Popover.Content placement="top" className="storage-overview__info-popover">
+                              <p>{c.browserStorageInfo}</p>
+                            </Popover.Content>
+                          </Popover>
+                        </div>
                         <strong>
                           {browserStorage
                             ? `${formatAudioFileSize(browserStorage.usage)} / ${formatAudioFileSize(browserStorage.quota)}`

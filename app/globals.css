@@ -4968,6 +4968,47 @@ html[data-mcsd-color-mode="night"] {
   font-weight: 800;
 }
 
+.storage-overview__label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.storage-overview__info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  color: var(--modal-muted);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.storage-overview__info:hover,
+.storage-overview__info:focus-visible {
+  color: var(--modal-ink);
+}
+
+.storage-overview__info-popover {
+  max-width: 260px;
+  color: var(--modal-ink);
+  background: var(--modal-bg);
+  border: 2px solid var(--modal-border-strong);
+  border-radius: 2px;
+  padding: 9px 10px;
+  box-shadow: 4px 5px 0 rgba(0, 0, 0, 0.28);
+}
+
+.storage-overview__info-popover p {
+  margin: 0;
+  color: var(--modal-ink);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
 .storage-overview__summary strong {
   overflow-wrap: anywhere;
   color: var(--modal-ink);
