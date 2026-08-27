@@ -8,6 +8,7 @@ import {
   buildCommandGroups,
   buildJavaSoundsJson,
   buildEditorManifest,
+  convertLegacySoundMappingsToMcsd,
   deriveCustomEventNames,
   buildLegacySoundMappings,
   type AudioPackBuildInput,
@@ -76,6 +77,29 @@ describe("audio pack definitions", () => {
       subtitle: "Wind blows",
       sounds: ["sounds/demo/wind"],
     });
+  });
+
+  test("keeps root-level sound paths when the project has no main key", () => {
+    const noKeyInput = {
+      ...createInput(),
+      key: "",
+      eventBindings: {
+        one: ["mcsd.weather"],
+        two: ["mcsd.weather"],
+      },
+      eventWeights: { two: { "mcsd.weather": 3 } },
+    };
+    assert.deepEqual(buildJavaSoundsJson(noKeyInput)["mcsd.weather"], {
+      subtitle: "Bells ring",
+      sounds: [
+        { name: "bell", stream: true },
+        { name: "wind", stream: true, weight: 3 },
+      ],
+    });
+    assert.deepEqual(
+      buildBedrockSoundDefinitions({ ...noKeyInput, platform: "bedrock" }).sound_definitions["mcsd.weather"]?.sounds,
+      ["sounds/bell", { name: "sounds/wind", weight: 3 }],
+    );
   });
 
   test("writes non-default random playback weights for both editions", () => {
@@ -176,6 +200,16 @@ describe("audio pack archives", () => {
     assert.equal(packMeta.pack.description, "Test sounds By mcsd v1.2.9");
   });
 
+  test("builds root-level audio files when importing a pack without a main key", async () => {
+    const archive = await buildAudioPackArchive({ ...createInput(), key: "" });
+    const zip = await JSZip.loadAsync(await archive.blob.arrayBuffer());
+    assert.ok(zip.file("assets/minecraft/sounds/bell.ogg"));
+    assert.equal(zip.file("assets/minecraft/sounds/mcsd/bell.ogg"), null);
+    const editor = JSON.parse(await zip.file(".editor/mcsd.json")!.async("text"));
+    assert.equal(editor.project.key, "");
+    assert.equal(editor.audioFiles[0].archivePath, "assets/minecraft/sounds/bell.ogg");
+  });
+
   test("builds an installable Bedrock MCPACK layout", async () => {
     const archive = await buildAudioPackArchive(createInput("bedrock"));
     const zip = await JSZip.loadAsync(await archive.blob.arrayBuffer());
@@ -262,6 +296,40 @@ describe("legacy audio pack imports", () => {
     assert.equal(mappings.eventWeights.wind?.["mcsd.wind"], 2);
     assert.deepEqual(mappings.eventBindings.bell, []);
     assert.deepEqual(withoutDefinitions.eventBindings.bell, ["mcsd.bell"]);
+  });
+
+  test("converts hand-written custom events while preserving vanilla events", () => {
+    const converted = convertLegacySoundMappingsToMcsd({
+      customEventSuffixes: { custom: "xx", vanilla: "bell" },
+      eventBindings: {
+        custom: ["xx"],
+        vanilla: ["block.note_block.bell"],
+      },
+      eventWeights: {
+        custom: { xx: 3 },
+        vanilla: { "block.note_block.bell": 2 },
+      },
+      audioSubtitles: { custom: "Custom sound" },
+    }, (eventName) => eventName === "block.note_block.bell");
+
+    assert.deepEqual(converted.eventBindings.custom, ["mcsd.xx"]);
+    assert.deepEqual(converted.eventBindings.vanilla, ["block.note_block.bell"]);
+    assert.deepEqual(converted.eventWeights.custom, { "mcsd.xx": 3 });
+    assert.deepEqual(converted.eventWeights.vanilla, { "block.note_block.bell": 2 });
+    assert.equal(converted.customEventSuffixes.custom, "xx");
+    assert.equal(converted.audioSubtitles.custom, "Custom sound");
+
+    const definitions = buildJavaSoundsJson({
+      ...createInput(),
+      key: "mcsd",
+      audioFiles: [{ id: "custom", key: "xx", file: new Blob(["sound"]) }],
+      eventBindings: converted.eventBindings,
+      eventWeights: converted.eventWeights,
+      audioSubtitles: converted.audioSubtitles,
+    });
+    assert.deepEqual(definitions["mcsd.xx"]?.sounds, [
+      { name: "mcsd/xx", stream: true, weight: 3 },
+    ]);
   });
 });
 

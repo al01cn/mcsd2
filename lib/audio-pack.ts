@@ -152,11 +152,16 @@ function uniqueEventNames(input: AudioPackBuildInput) {
 }
 
 function normalizePackKey(value: string) {
+  if (!value.trim()) return "";
   return value.toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 32) || DEFAULT_PACK_KEY;
 }
 
 function normalizeAudioKey(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 64) || "sound";
+}
+
+function buildPackSoundPath(packKey: string, audioKey: string) {
+  return packKey ? `${packKey}/${audioKey}` : audioKey;
 }
 
 function normalizeImportedSoundReference(value: string) {
@@ -234,6 +239,52 @@ export function buildLegacySoundMappings(
   };
 }
 
+export function convertLegacySoundMappingsToMcsd(
+  mappings: LegacySoundMappings,
+  isVanillaEvent: (eventName: string) => boolean,
+): LegacySoundMappings {
+  const convertEventName = (eventName: string) => {
+    const comparableName = eventName.replace(/^minecraft:/i, "");
+    if (isVanillaEvent(comparableName) || comparableName.startsWith(CUSTOM_EVENT_PREFIX)) {
+      return eventName;
+    }
+    return `${CUSTOM_EVENT_PREFIX}${comparableName}`;
+  };
+  const eventBindings = Object.fromEntries(
+    Object.entries(mappings.eventBindings).map(([audioId, events]) => [
+      audioId,
+      Array.from(new Set(events.map(convertEventName))),
+    ]),
+  );
+  const eventWeights = Object.fromEntries(
+    Object.entries(mappings.eventWeights).map(([audioId, weights]) => {
+      const convertedWeights: Record<string, number> = {};
+      for (const [eventName, weight] of Object.entries(weights)) {
+        convertedWeights[convertEventName(eventName)] = weight;
+      }
+      return [audioId, convertedWeights];
+    }),
+  );
+  const customEventSuffixes = Object.fromEntries(
+    Object.entries(eventBindings).map(([audioId, events]) => {
+      const customEvent = events.find((eventName) => eventName.startsWith(CUSTOM_EVENT_PREFIX));
+      return [
+        audioId,
+        customEvent?.slice(CUSTOM_EVENT_PREFIX.length)
+          || mappings.customEventSuffixes[audioId]
+          || audioId,
+      ];
+    }),
+  );
+
+  return {
+    customEventSuffixes,
+    eventBindings,
+    eventWeights,
+    audioSubtitles: mappings.audioSubtitles,
+  };
+}
+
 function buildPackDescription(
   description?: string,
   version?: string,
@@ -281,7 +332,7 @@ export function buildJavaSoundsJson(input: AudioPackBuildInput) {
   const definitions: Record<string, JavaSoundDefinition> = {};
 
   for (const audio of input.audioFiles) {
-    const soundName = `${packKey}/${normalizeAudioKey(audio.key)}`;
+    const soundName = buildPackSoundPath(packKey, normalizeAudioKey(audio.key));
     const subtitle = input.audioSubtitles?.[audio.id]?.trim();
     const seenForAudio = new Set<string>();
 
@@ -315,7 +366,7 @@ export function buildBedrockSoundDefinitions(input: AudioPackBuildInput) {
   const definitions: Record<string, BedrockSoundDefinition> = {};
 
   for (const audio of input.audioFiles) {
-    const soundName = `sounds/${packKey}/${normalizeAudioKey(audio.key)}`;
+    const soundName = `sounds/${buildPackSoundPath(packKey, normalizeAudioKey(audio.key))}`;
     const subtitle = input.audioSubtitles?.[audio.id]?.trim();
     const seenForAudio = new Set<string>();
 
@@ -380,12 +431,13 @@ export function buildEditorManifest(input: AudioPackBuildInput): EditorManifest 
     : null;
   const audioFiles = input.audioFiles.map((audio) => {
     const key = normalizeAudioKey(audio.key);
+    const soundPath = buildPackSoundPath(packKey, key);
     const sourceName = typeof File !== "undefined" && audio.file instanceof File
       ? audio.file.name
       : `${key}.ogg`;
     const archivePath = input.platform === "java"
-      ? `assets/minecraft/sounds/${packKey}/${key}.ogg`
-      : `sounds/${packKey}/${key}.ogg`;
+      ? `assets/minecraft/sounds/${soundPath}.ogg`
+      : `sounds/${soundPath}.ogg`;
     return {
       id: audio.id,
       key: audio.key,
@@ -545,7 +597,8 @@ export async function buildAudioPackArchive(
       JSON.stringify(buildJavaSoundsJson(input), null, 2),
     );
     for (const { audio, buffer } of audioBuffers) {
-      zip.file(`assets/minecraft/sounds/${packKey}/${normalizeAudioKey(audio.key)}.ogg`, buffer);
+      const soundPath = buildPackSoundPath(packKey, normalizeAudioKey(audio.key));
+      zip.file(`assets/minecraft/sounds/${soundPath}.ogg`, buffer);
     }
   } else {
     zip.file("manifest.json", JSON.stringify(buildBedrockManifest(input), null, 2));
@@ -555,7 +608,8 @@ export async function buildAudioPackArchive(
       JSON.stringify(buildBedrockSoundDefinitions(input), null, 2),
     );
     for (const { audio, buffer } of audioBuffers) {
-      zip.file(`sounds/${packKey}/${normalizeAudioKey(audio.key)}.ogg`, buffer);
+      const soundPath = buildPackSoundPath(packKey, normalizeAudioKey(audio.key));
+      zip.file(`sounds/${soundPath}.ogg`, buffer);
     }
   }
 

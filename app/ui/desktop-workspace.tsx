@@ -47,7 +47,11 @@ import {
 } from "react";
 import {
   CreateOrImportModal,
+  type ImportDetectedPack,
+  type OnDetectAudioPack,
   ProjectInfoModal,
+  type ImportPackOptions,
+  type ImportPackProgress,
   type NewProjectData,
   type PackPlatform,
 } from "@/app/ui/create-project-modal";
@@ -82,6 +86,7 @@ import {
 } from "@/lib/project-workspace-db";
 import {
   buildLegacySoundMappings,
+  convertLegacySoundMappingsToMcsd,
   deriveCustomEventNames,
   EDITOR_METADATA_PATH,
   type EditorManifest,
@@ -98,6 +103,7 @@ import {
 } from "@/lib/project-version";
 import { createProjectContentFingerprint } from "@/lib/project-content";
 import mcVersions from "@/lib/mcver";
+import { vanillaSoundBedrock, vanillaSoundJava } from "@/lib/sounds";
 import {
   DEFAULT_AUDIO_EVENT_WEIGHT,
   normalizeAudioEventWeight,
@@ -111,6 +117,13 @@ type EventEditorMode = "novice" | "basic" | "advanced";
 type ProbeResult = { available: boolean; latency: number | null };
 type AudioAnalysisStatus = "analyzing" | "ready" | "error";
 type AudioConversionStatus = "idle" | "queued" | "converting" | "converted" | "skipped" | "error";
+
+const VANILLA_JAVA_SOUND_EVENTS = new Set(Object.keys(vanillaSoundJava));
+const VANILLA_BEDROCK_SOUND_EVENTS = new Set([
+  ...Object.keys(vanillaSoundJava),
+  ...Object.keys(vanillaSoundBedrock.individual_event_sounds.events),
+  ...Object.keys(vanillaSoundBedrock.individual_named_sounds.sounds),
+]);
 type WorkspaceAudioFile = {
   id: string;
   file: File;
@@ -281,6 +294,41 @@ function getLegacyVersion(value: unknown) {
   return "";
 }
 
+function getDetectedGameVersion(platform: PackPlatform, javaPackFormat: string | undefined) {
+  if (platform !== "java" || !javaPackFormat) return undefined;
+  return mcVersions.find((item) => item.pack_format === javaPackFormat)?.version;
+}
+
+function convertImportedWorkspaceToMcsd(
+  workspace: PersistedProjectWorkspace,
+  platform: PackPlatform,
+) {
+  const vanillaEvents = platform === "java"
+    ? VANILLA_JAVA_SOUND_EVENTS
+    : VANILLA_BEDROCK_SOUND_EVENTS;
+  const converted = convertLegacySoundMappingsToMcsd(
+    {
+      customEventSuffixes: workspace.customEventSuffixes,
+      eventBindings: workspace.audioEventBindings,
+      eventWeights: workspace.audioEventWeights ?? {},
+      audioSubtitles: workspace.audioSubtitles ?? {},
+    },
+    (eventName) => vanillaEvents.has(eventName),
+  );
+
+  return {
+    ...workspace,
+    customEventSuffixes: converted.customEventSuffixes,
+    customEventNames: deriveCustomEventNames(
+      converted.customEventSuffixes,
+      converted.eventBindings,
+    ),
+    audioEventBindings: converted.eventBindings,
+    audioEventWeights: converted.eventWeights,
+    audioSubtitles: converted.audioSubtitles,
+  };
+}
+
 function normalizeLegacySoundReference(value: string) {
   return value
     .trim()
@@ -294,8 +342,16 @@ function toLegacySoundPath(path: string, platform: PackPlatform) {
   const prefix = platform === "java" ? "assets/minecraft/sounds/" : "sounds/";
   if (!path.startsWith(prefix)) return null;
   const relative = path.slice(prefix.length).replace(/\.[^.]+$/i, "");
+  if (!relative) return null;
   const separator = relative.indexOf("/");
-  if (separator < 1) return null;
+  if (separator < 1) {
+    return {
+      packKey: null,
+      soundPath: relative,
+      reference: normalizeLegacySoundReference(relative),
+      key: relative.replace(/[^a-zA-Z0-9_]+/g, "_").replace(/^_+|_+$/g, "") || "sound",
+    };
+  }
   const packKey = relative.slice(0, separator);
   const soundPath = relative.slice(separator + 1);
   return {
@@ -306,9 +362,14 @@ function toLegacySoundPath(path: string, platform: PackPlatform) {
   };
 }
 
-async function readAudioPackArchive(file: File) {
+async function readAudioPackArchive(
+  file: File,
+  onProgress?: (progress: ImportPackProgress) => void,
+) {
+  onProgress?.({ phase: "reading", percent: 2 });
   const { default: JSZip } = await import("jszip");
   const zip = await JSZip.loadAsync(await file.arrayBuffer());
+  onProgress?.({ phase: "detecting", percent: 10 });
   const zipPaths = Object.keys(zip.files);
   const metadataPath = zip.file(EDITOR_METADATA_PATH)
     ? EDITOR_METADATA_PATH
@@ -374,11 +435,23 @@ async function readAudioPackArchive(file: File) {
         sampleRate: 44100,
         channels: 2,
         duration: null,
+        packKey: legacyPath?.packKey ?? null,
         reference: legacyPath?.reference ?? normalizeLegacySoundReference(key),
       };
     });
   const audioEntries = manifest?.audioFiles ?? discoveredEntries;
   if (audioEntries.length === 0) throw new Error("压缩包中没有找到音频文件。");
+  const detectedMainKeys = new Set(
+    discoveredEntries
+      .map((entry) => entry.packKey)
+      .filter((key): key is string => Boolean(key)),
+  );
+  const hasMainKey = discoveredEntries.length > 0
+    ? discoveredEntries.every((entry) => entry.packKey !== null) && detectedMainKeys.size === 1
+    : Boolean(manifest?.project.key.trim());
+  const detectedMainKey = hasMainKey
+    ? detectedMainKeys.values().next().value ?? manifest?.project.key.trim()
+    : undefined;
 
   const legacyJavaPack = legacyPackMeta?.pack as Record<string, unknown> | undefined;
   const legacyBedrockHeader = legacyBedrockManifest?.header as Record<string, unknown> | undefined;
@@ -399,20 +472,19 @@ async function readAudioPackArchive(file: File) {
     .trim();
 
   const fallbackProject: EditorManifest["project"] | null = manifest
-    ? manifest.project
+    ? {
+        ...manifest.project,
+        key: hasMainKey ? detectedMainKey ?? manifest.project.key : "",
+      }
     : {
         name: typeof legacyBedrockHeader?.name === "string"
           ? legacyBedrockHeader.name
           : archiveBaseName,
-        key: discoveredEntries[0]?.reference.split("/")[0] ?? "mcsd",
+        key: detectedMainKey ?? "",
         description: projectDescription,
         platform,
         javaPackFormat,
-        gameVersion: platform === "java"
-          ? mcVersions.find((item) => item.pack_format === javaPackFormat)?.version ?? ""
-          : Array.isArray(legacyBedrockHeader?.min_engine_version)
-            ? (legacyBedrockHeader.min_engine_version as unknown[]).join(".")
-            : "",
+        gameVersion: getDetectedGameVersion(platform, javaPackFormat) ?? "",
         version: getLegacyVersion(
           legacyBedrockHeader?.version ?? legacyJavaPack?.description,
         ) || "0.0.1",
@@ -424,10 +496,28 @@ async function readAudioPackArchive(file: File) {
         iconPath: platform === "java" ? "pack.png" : "pack_icon.png",
       };
 
+  if (fallbackProject) {
+    onProgress?.({
+      phase: "detecting",
+      percent: 28,
+      detected: {
+        platform,
+        version: fallbackProject.version,
+        releaseChannel: fallbackProject.releaseChannel,
+        isMcsdPack: Boolean(manifest),
+        hasMainKey,
+        mainKey: detectedMainKey,
+        javaPackFormat: fallbackProject.javaPackFormat || undefined,
+        gameVersion: getDetectedGameVersion(platform, fallbackProject.javaPackFormat),
+      },
+    });
+  }
+
   const legacyMappings = buildLegacySoundMappings(platform, discoveredEntries, legacySounds);
 
   const audioFiles: PersistedWorkspaceAudio[] = [];
-  for (const entry of audioEntries) {
+  for (let audioIndex = 0; audioIndex < audioEntries.length; audioIndex += 1) {
+    const entry = audioEntries[audioIndex];
     const archiveFile = zip.file(entry.archivePath)
       ?? zip.file(`${archiveRoot}${entry.archivePath}`);
     if (!archiveFile) continue;
@@ -452,6 +542,10 @@ async function readAudioPackArchive(file: File) {
       analysisStatus: "ready",
       conversionStatus: "skipped",
     });
+    onProgress?.({
+      phase: "extracting",
+      percent: 30 + Math.round(((audioIndex + 1) / audioEntries.length) * 60),
+    });
   }
   if (audioFiles.length === 0) throw new Error("压缩包中的音频文件无法读取。");
 
@@ -462,6 +556,7 @@ async function readAudioPackArchive(file: File) {
     ? zip.file(iconPath) ?? zip.file(`${archiveRoot}${iconPath}`)
     : null;
   if (iconFile) iconDataUrl = await blobToDataUrl(await iconFile.async("blob"));
+  onProgress?.({ phase: "finalizing", percent: 96 });
 
   const importedEventBindings = manifest?.eventBindings ?? legacyMappings.eventBindings;
 
@@ -482,7 +577,8 @@ async function readAudioPackArchive(file: File) {
     audioEventWeights: manifest?.eventWeights ?? legacyMappings.eventWeights,
     audioSubtitles: manifest?.audioSubtitles ?? legacyMappings.audioSubtitles,
   };
-  return { manifest, project: fallbackProject, workspace, iconDataUrl };
+  onProgress?.({ phase: "finalizing", percent: 100 });
+  return { manifest, project: fallbackProject, workspace, iconDataUrl, hasMainKey, mainKey: detectedMainKey };
 }
 
 const FFMPEG_SOURCES = FFMPEG_CDN_BASES;
@@ -1936,6 +2032,11 @@ export function DesktopWorkspace() {
   const inputRef = useRef<HTMLInputElement>(null);
   const audioPreviewRef = useRef<{ id: string; audio: HTMLAudioElement; url: string } | null>(null);
   const workspaceLoadRequestRef = useRef(0);
+  const detectedImportRef = useRef<{
+    file: File;
+    imported: Awaited<ReturnType<typeof readAudioPackArchive>>;
+  } | null>(null);
+  const importInFlightRef = useRef(false);
   const c = COPY[language];
   const visibleEventEditorMode = isMobileWorkspace ? "novice" : eventEditorMode;
 
@@ -2367,29 +2468,93 @@ export function DesktopWorkspace() {
     setWorkspaceStorageReady(true);
   }
 
-  async function importProject(file: File) {
-    let imported: Awaited<ReturnType<typeof readAudioPackArchive>>;
+  const detectProject: OnDetectAudioPack = async (file, onProgress) => {
+    detectedImportRef.current = null;
     try {
-      imported = await readAudioPackArchive(file);
+      const imported = await readAudioPackArchive(file, onProgress);
+      detectedImportRef.current = { file, imported };
+      const project = imported.project;
+      if (!project) return false;
+      return {
+        platform: project.platform,
+        version: project.version,
+        releaseChannel: project.releaseChannel,
+        isMcsdPack: Boolean(imported.manifest),
+        hasMainKey: imported.hasMainKey,
+        mainKey: imported.mainKey,
+        javaPackFormat: project.javaPackFormat || undefined,
+        gameVersion: getDetectedGameVersion(project.platform, project.javaPackFormat),
+      } satisfies ImportDetectedPack;
     } catch (error) {
       setAudioPreparationError(error instanceof Error ? error.message : "无法读取音频包。");
       return false;
+    }
+  };
+
+  async function importProject(
+    file: File,
+    onProgress?: (progress: ImportPackProgress) => void,
+    options?: ImportPackOptions,
+  ) {
+    if (importInFlightRef.current) return false;
+    importInFlightRef.current = true;
+    let imported: Awaited<ReturnType<typeof readAudioPackArchive>>;
+    try {
+      const detectedImport = detectedImportRef.current;
+      if (detectedImport?.file === file) {
+        imported = detectedImport.imported;
+        onProgress?.({ phase: "finalizing", percent: 92, detected: {
+          platform: imported.project?.platform ?? "java",
+          version: imported.project?.version ?? DEFAULT_PROJECT_VERSION,
+          releaseChannel: imported.project?.releaseChannel ?? DEFAULT_RELEASE_CHANNEL,
+          isMcsdPack: Boolean(imported.manifest),
+          hasMainKey: imported.hasMainKey,
+          mainKey: imported.mainKey,
+          javaPackFormat: imported.project?.javaPackFormat || undefined,
+          gameVersion: getDetectedGameVersion(
+            imported.project?.platform ?? "java",
+            imported.project?.javaPackFormat,
+          ),
+        } });
+      } else {
+        imported = await readAudioPackArchive(file, onProgress);
+      }
+    } catch (error) {
+      setAudioPreparationError(error instanceof Error ? error.message : "无法读取音频包。");
+      importInFlightRef.current = false;
+      return false;
+    }
+
+    if (options?.convertToMcsd && !imported.manifest) {
+      imported = {
+        ...imported,
+        workspace: convertImportedWorkspaceToMcsd(
+          imported.workspace,
+          imported.project?.platform ?? "java",
+        ),
+      };
     }
 
     persistCurrentWorkspace();
     const timestamp = Date.now();
     const extensionIndex = file.name.lastIndexOf(".");
     const fileBaseName = extensionIndex > 0 ? file.name.slice(0, extensionIndex) : file.name;
+    const importedMainKey = options?.mainKey === null
+      ? ""
+      : options?.mainKey?.trim() || imported.project?.key || "";
     const project: Project = {
       id: `project-${timestamp}`,
       name: imported.project?.name?.trim() || fileBaseName.trim().slice(0, 10) || c.untitled,
       soundCount: 0,
       updatedAt: timestamp,
-      key: imported.project?.key || "mcsd",
+      key: importedMainKey,
       description: imported.project?.description || "",
       platform: imported.project?.platform || "java",
       javaPackFormat: imported.project?.javaPackFormat || "",
-      gameVersion: imported.project?.gameVersion || "",
+      gameVersion: getDetectedGameVersion(
+        imported.project?.platform ?? "java",
+        imported.project?.javaPackFormat,
+      ) ?? "",
       iconDataUrl: imported.iconDataUrl,
       version: imported.project?.version || DEFAULT_PROJECT_VERSION,
       releaseChannel: imported.project?.releaseChannel || DEFAULT_RELEASE_CHANNEL,
@@ -2401,30 +2566,37 @@ export function DesktopWorkspace() {
       updatedAt: timestamp,
     };
     project.versionBaseline = createVersionBaseline(project, imported.workspace);
-    setProjects((current) => [project, ...current]);
-    workspaceLoadRequestRef.current += 1;
-    setWorkspaceStorageReady(false);
-    setSelectedProjectId(project.id);
-    stopAudioPreview();
-    setAudioFiles(imported.workspace.audioFiles.map(restoreWorkspaceAudio));
-    setCustomEventSuffixes(imported.workspace.customEventSuffixes);
-    setCustomEventNames(imported.workspace.customEventNames ?? deriveCustomEventNames(imported.workspace.customEventSuffixes, imported.workspace.audioEventBindings));
-    setAudioEventBindings(imported.workspace.audioEventBindings);
-    setAudioEventWeights(imported.workspace.audioEventWeights ?? {});
-    setAudioSubtitles(imported.workspace.audioSubtitles ?? {});
-    setAudioPreparationError(null);
-    setIsPreparingAudio(false);
-    setAudioPage(1);
-    setActiveStep(Math.max(0, Math.min(2, imported.workspace.activeStep)));
-    setEventEditorMode("novice");
-    setHasOpenedAdvancedEditor(false);
-    setView("workspace");
-    setProjects((current) => current.map((item) => item.id === project.id
-      ? { ...item, soundCount: imported.workspace.audioFiles.length }
-      : item));
-    await saveProjectWorkspace(imported.workspace);
-    setWorkspaceStorageReady(true);
-    return true;
+    try {
+      onProgress?.({ phase: "finalizing", percent: 96 });
+      await saveProjectWorkspace(imported.workspace);
+      project.soundCount = imported.workspace.audioFiles.length;
+      setProjects((current) => [project, ...current]);
+      workspaceLoadRequestRef.current += 1;
+      setWorkspaceStorageReady(false);
+      setSelectedProjectId(project.id);
+      stopAudioPreview();
+      setAudioFiles(imported.workspace.audioFiles.map(restoreWorkspaceAudio));
+      setCustomEventSuffixes(imported.workspace.customEventSuffixes);
+      setCustomEventNames(imported.workspace.customEventNames ?? deriveCustomEventNames(imported.workspace.customEventSuffixes, imported.workspace.audioEventBindings));
+      setAudioEventBindings(imported.workspace.audioEventBindings);
+      setAudioEventWeights(imported.workspace.audioEventWeights ?? {});
+      setAudioSubtitles(imported.workspace.audioSubtitles ?? {});
+      setAudioPreparationError(null);
+      setIsPreparingAudio(false);
+      setAudioPage(1);
+      setActiveStep(Math.max(0, Math.min(2, imported.workspace.activeStep)));
+      setEventEditorMode("novice");
+      setHasOpenedAdvancedEditor(false);
+      setWorkspaceStorageReady(true);
+      onProgress?.({ phase: "finalizing", percent: 100 });
+      detectedImportRef.current = null;
+      return true;
+    } catch (error) {
+      setAudioPreparationError(error instanceof Error ? error.message : "无法保存音频包。");
+      return false;
+    } finally {
+      importInFlightRef.current = false;
+    }
   }
 
   function openProject(project: Project) {
@@ -3189,7 +3361,9 @@ export function DesktopWorkspace() {
           audioEventWeights={audioEventWeights}
           audioSubtitles={audioSubtitles}
           onCreateProject={createProject}
+          onDetectProject={detectProject}
           onImportProject={importProject}
+          onImportProjectComplete={() => setView("workspace")}
           onOpenProject={openProject}
           onEditProject={setEditingProjectId}
           onManageVersions={setManagingVersionsProjectId}
@@ -3289,7 +3463,9 @@ export function DesktopWorkspace() {
               language={language}
               versionIncrementLimit={versionIncrementLimit}
               onCreate={createProject}
+              onDetect={detectProject}
               onImport={importProject}
+              onImportComplete={() => setView("workspace")}
             />
 
             {visibleProjects.map((project) => (

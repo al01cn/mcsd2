@@ -30,6 +30,8 @@ import { NoviceEventManager } from "@/app/ui/novice-event-manager";
 import {
   CreateOrImportModal,
   type NewProjectData,
+  type OnDetectAudioPack,
+  type OnImportAudioPack,
   type PackPlatform,
 } from "@/app/ui/create-project-modal";
 import { ExportWorkspace } from "@/app/ui/export-workspace";
@@ -222,7 +224,9 @@ export function MobileWorkspace({
   audioEventWeights,
   audioSubtitles,
   onCreateProject,
+  onDetectProject,
   onImportProject,
+  onImportProjectComplete,
   onOpenProject,
   onEditProject,
   onManageVersions,
@@ -268,7 +272,9 @@ export function MobileWorkspace({
   audioEventWeights: AudioEventWeights;
   audioSubtitles: Record<string, string>;
   onCreateProject: (data: NewProjectData) => void;
-  onImportProject: (file: File) => void | boolean | Promise<void | boolean>;
+  onDetectProject: OnDetectAudioPack;
+  onImportProject: OnImportAudioPack;
+  onImportProjectComplete: () => void;
   onOpenProject: (project: MobileProject) => void;
   onEditProject: (projectId: string) => void;
   onManageVersions: (projectId: string) => void;
@@ -374,7 +380,9 @@ export function MobileWorkspace({
                 language={language}
                 versionIncrementLimit={versionIncrementLimit}
                 onCreate={onCreateProject}
+                onDetect={onDetectProject}
                 onImport={onImportProject}
+                onImportComplete={onImportProjectComplete}
               />
             </section>
 

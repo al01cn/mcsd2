@@ -5,6 +5,8 @@ import {
   Archive,
   Check,
   ChevronDown,
+  CircleCheck,
+  CircleX,
   FileArchive,
   Image as ImageIcon,
   LoaderCircle,
@@ -46,6 +48,43 @@ export type NewProjectData = {
   version: string;
   releaseChannel: ReleaseChannel;
 };
+
+export type ImportPackPhase = "reading" | "detecting" | "extracting" | "finalizing";
+
+export type ImportDetectedPack = {
+  platform: PackPlatform;
+  version: string;
+  releaseChannel: ReleaseChannel;
+  isMcsdPack: boolean;
+  hasMainKey: boolean;
+  mainKey?: string;
+  javaPackFormat?: string;
+  gameVersion?: string;
+};
+
+export type ImportPackProgress = {
+  phase: ImportPackPhase;
+  percent: number;
+  detected?: ImportDetectedPack;
+};
+
+export type ImportProgressCallback = (progress: ImportPackProgress) => void;
+
+export type ImportPackOptions = {
+  mainKey?: string | null;
+  convertToMcsd?: boolean;
+};
+
+export type OnImportAudioPack = (
+  file: File,
+  onProgress?: ImportProgressCallback,
+  options?: ImportPackOptions,
+) => void | boolean | Promise<void | boolean>;
+
+export type OnDetectAudioPack = (
+  file: File,
+  onProgress?: ImportProgressCallback,
+) => Promise<ImportDetectedPack | false>;
 
 const NAME_MAX_LENGTH = 10;
 const KEY_MAX_LENGTH = 5;
@@ -125,6 +164,27 @@ const COPY = {
     selectedFile: "已选择",
     invalidArchive: "请选择 ZIP 或 MCPACK 文件。",
     importAndOpen: "导入并打开工作台",
+    importing: "正在导入音频包",
+    importReading: "正在读取压缩包…",
+    importDetecting: "正在检测版本信息…",
+    importExtracting: "正在读取音频文件…",
+    importFinalizing: "正在完成导入…",
+    importDetectedTitle: "检测到音频包版本信息",
+    missingMainKeyTitle: "未检测到主 Key",
+    missingMainKeyDescription: "这个音频包没有 MCSD 规范要求的主 Key。是否转换后再导入？",
+    nonMcsdPackTitle: "检测到非 MCSD 音频包",
+    nonMcsdPackDescription: "这个音频包没有 MCSD 编辑器元数据，可能由手动编写。是否转换为 MCSD 规范后再导入？",
+    convertToMcsd: "是，转换为 MCSD 规范",
+    keepOriginal: "否，按原格式导入",
+    mainKeyTitle: "设置主 Key",
+    mainKeyDescription: "为转换后的音频包填写主 Key。",
+    mainKeyPlaceholder: "例如：mcsd",
+    confirmMainKey: "确认主 Key",
+    edition: "平台",
+    gameVersion: "游戏版本",
+    importSuccess: "导入成功，正在打开工作台...",
+    importFailed: "导入失败",
+    importFailedDescription: "无法读取这个音频包，请确认文件完整后重试。",
   },
   en: {
     create: "Create audio pack",
@@ -182,6 +242,27 @@ const COPY = {
     selectedFile: "Selected",
     invalidArchive: "Choose a ZIP or MCPACK file.",
     importAndOpen: "Import and open workspace",
+    importing: "Importing audio pack",
+    importReading: "Reading archive…",
+    importDetecting: "Detecting version information…",
+    importExtracting: "Reading audio files…",
+    importFinalizing: "Finalizing import…",
+    importDetectedTitle: "Detected pack version information",
+    missingMainKeyTitle: "No main key detected",
+    missingMainKeyDescription: "This audio pack has no MCSD main key. Convert it before importing?",
+    nonMcsdPackTitle: "Non-MCSD audio pack detected",
+    nonMcsdPackDescription: "This pack has no MCSD editor metadata and may have been authored manually. Convert it before importing?",
+    convertToMcsd: "Yes, convert to MCSD",
+    keepOriginal: "No, import as-is",
+    mainKeyTitle: "Set main key",
+    mainKeyDescription: "Choose the main key for the converted audio pack.",
+    mainKeyPlaceholder: "e.g. mcsd",
+    confirmMainKey: "Confirm main key",
+    edition: "Edition",
+    gameVersion: "Game version",
+    importSuccess: "Import successful. Opening workspace...",
+    importFailed: "Import failed",
+    importFailedDescription: "Could not read this audio pack. Check the file and try again.",
   },
 } as const;
 
@@ -398,7 +479,7 @@ export function ProjectInfoModal({
                     description: description.trim(),
                     platform,
                     javaPackFormat,
-                    gameVersion: selectedPackFormat?.version ?? "",
+                    gameVersion: platform === "java" ? selectedPackFormat?.version ?? "" : "",
                     iconDataUrl,
                     version,
                     releaseChannel,
@@ -740,40 +821,130 @@ export function ProjectInfoModal({
   );
 }
 
+type ImportStatus = "idle" | "detecting" | "key-choice" | "ready" | "importing" | "success" | "error";
+
 type ImportAudioPackModalProps = {
   language: Language;
   isOpen: boolean;
   onOpenChange: (isOpen: boolean) => void;
-  onImport: (file: File) => void | boolean | Promise<void | boolean>;
+  onDetect: OnDetectAudioPack;
+  onImport: OnImportAudioPack;
+  onImportComplete: () => void;
 };
+
+const IMPORT_PHASE_LABEL_KEY = {
+  reading: "importReading",
+  detecting: "importDetecting",
+  extracting: "importExtracting",
+  finalizing: "importFinalizing",
+} as const;
 
 function ImportAudioPackModal({
   language,
   isOpen,
   onOpenChange,
+  onDetect,
   onImport,
+  onImportComplete,
 }: ImportAudioPackModalProps) {
   const c = COPY[language];
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [fileError, setFileError] = useState(false);
+  const [importStatus, setImportStatus] = useState<ImportStatus>("idle");
+  const [progress, setProgress] = useState<ImportPackProgress>({ phase: "reading", percent: 0 });
+  const [importMainKey, setImportMainKey] = useState<string | null | undefined>(undefined);
+  const [convertToMcsd, setConvertToMcsd] = useState(false);
+  const [isMainKeyDialogOpen, setIsMainKeyDialogOpen] = useState(false);
+  const [mainKeyDraft, setMainKeyDraft] = useState("mcsd");
+  const detectionRequestRef = useRef(0);
+  const allowCloseRef = useRef(false);
 
   function chooseFile(nextFile: File | undefined) {
     if (!nextFile) return;
     const isArchive = /\.(zip|mcpack)$/i.test(nextFile.name);
     setFileError(!isArchive);
     setFile(isArchive ? nextFile : null);
+    detectionRequestRef.current += 1;
+    const requestId = detectionRequestRef.current;
+    if (!isArchive) {
+      setImportStatus("idle");
+      setProgress({ phase: "reading", percent: 0 });
+      return;
+    }
+    setImportStatus("detecting");
+    setProgress({ phase: "reading", percent: 2 });
+    void onDetect(nextFile, setProgress).then((result) => {
+      if (detectionRequestRef.current !== requestId) return;
+      if (result === false) {
+        setImportStatus("error");
+        return;
+      }
+      setProgress({ phase: "detecting", percent: 100, detected: result });
+      setImportMainKey(result.hasMainKey ? result.mainKey ?? "" : undefined);
+      setConvertToMcsd(false);
+      setImportStatus(result.isMcsdPack && result.hasMainKey ? "ready" : "key-choice");
+    }).catch(() => {
+      if (detectionRequestRef.current === requestId) setImportStatus("error");
+    });
+  }
+
+  function resetState() {
+    setFile(null);
+    setFileError(false);
+    setIsDragging(false);
+    setImportStatus("idle");
+    setProgress({ phase: "reading", percent: 0 });
+    setImportMainKey(undefined);
+    setConvertToMcsd(false);
+    setIsMainKeyDialogOpen(false);
+    setMainKeyDraft("mcsd");
+    detectionRequestRef.current += 1;
+    allowCloseRef.current = false;
+  }
+
+  const phaseLabel = c[IMPORT_PHASE_LABEL_KEY[progress.phase]];
+  const detected = progress.detected;
+  const keyChoiceTitle = detected?.isMcsdPack === false
+    ? c.nonMcsdPackTitle
+    : c.missingMainKeyTitle;
+  const keyChoiceDescription = detected?.isMcsdPack === false
+    ? c.nonMcsdPackDescription
+    : c.missingMainKeyDescription;
+
+  async function runImport(close: () => void) {
+    if (!file || importStatus !== "ready") return;
+    setImportStatus("importing");
+    setProgress((current) => ({ ...current, phase: "reading", percent: 2 }));
+    try {
+      const imported = await onImport(file, setProgress, {
+        mainKey: importMainKey === undefined ? null : importMainKey,
+        convertToMcsd,
+      });
+      if (imported === false) {
+        setImportStatus("error");
+        return;
+      }
+      setImportStatus("success");
+      window.setTimeout(() => {
+        allowCloseRef.current = true;
+        close();
+        window.requestAnimationFrame(onImportComplete);
+      }, 3000);
+    } catch {
+      setImportStatus("error");
+    }
   }
 
   return (
+    <>
     <Modal
       isOpen={isOpen}
       onOpenChange={(nextIsOpen) => {
         if (!nextIsOpen) {
-          setFile(null);
-          setFileError(false);
-          setIsDragging(false);
+          if (importStatus === "detecting" || importStatus === "importing" || (importStatus === "success" && !allowCloseRef.current)) return;
+          resetState();
         }
         onOpenChange(nextIsOpen);
       }}
@@ -783,71 +954,326 @@ function ImportAudioPackModal({
           <Modal.Dialog className="wiki-modal import-pack-modal sm:max-w-[650px]">
             {({ close }) => (
               <form
-                onSubmit={async (event) => {
+                onSubmit={(event) => {
                   event.preventDefault();
-                  if (!file) return;
-                  const imported = await onImport(file);
-                  if (imported === false) {
-                    setFileError(true);
-                    return;
-                  }
-                  close();
+                  void runImport(close);
                 }}
               >
-                <Modal.CloseTrigger className="wiki-modal__close" />
+                <Modal.CloseTrigger
+                  className="wiki-modal__close"
+                  isDisabled={importStatus === "detecting" || importStatus === "importing" || importStatus === "success"}
+                />
                 <Modal.Header className="wiki-modal__header">
                   <Modal.Icon className="wiki-modal__icon">
-                    <Archive aria-hidden="true" size={20} />
+                    {importStatus === "success" ? (
+                      <CircleCheck aria-hidden="true" size={20} />
+                    ) : importStatus === "error" ? (
+                      <CircleX aria-hidden="true" size={20} />
+                    ) : (
+                      <Archive aria-hidden="true" size={20} />
+                    )}
                   </Modal.Icon>
                   <div>
-                    <Modal.Heading className="wiki-modal__heading">{c.importTitle}</Modal.Heading>
-                    <p className="wiki-modal__description">{c.importSubtitle}</p>
+                    <Modal.Heading className="wiki-modal__heading">
+                      {importStatus === "detecting"
+                        ? c.importDetecting
+                        : importStatus === "key-choice"
+                        ? keyChoiceTitle
+                        : importStatus === "importing"
+                        ? c.importing
+                        : importStatus === "success"
+                          ? c.importSuccess
+                          : importStatus === "error"
+                            ? c.importFailed
+                            : c.importTitle}
+                    </Modal.Heading>
+                    <p className="wiki-modal__description">
+                      {importStatus === "detecting"
+                        ? file?.name ?? ""
+                        : importStatus === "key-choice"
+                        ? keyChoiceDescription
+                        : importStatus === "importing"
+                        ? file?.name ?? ""
+                        : importStatus === "error"
+                          ? c.importFailedDescription
+                          : c.importSubtitle}
+                    </p>
                   </div>
                 </Modal.Header>
+
                 <Modal.Body className="wiki-modal__body import-pack-modal__body">
-                  <input
-                    ref={inputRef}
-                    className="sr-only"
-                    type="file"
-                    accept=".zip,.mcpack"
-                    onChange={(event) => chooseFile(event.target.files?.[0])}
-                  />
-                  <button
-                    type="button"
-                    className={`import-pack-dropzone${isDragging ? " is-dragging" : ""}`}
-                    onClick={() => inputRef.current?.click()}
-                    onDragEnter={(event) => {
-                      event.preventDefault();
-                      setIsDragging(true);
-                    }}
-                    onDragOver={(event) => event.preventDefault()}
-                    onDragLeave={(event) => {
-                      if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-                      setIsDragging(false);
-                    }}
-                    onDrop={(event) => {
-                      event.preventDefault();
-                      setIsDragging(false);
-                      chooseFile(event.dataTransfer.files[0]);
-                    }}
-                  >
-                    <span className="import-pack-dropzone__icon">
-                      <FileArchive aria-hidden="true" size={30} />
-                    </span>
-                    <strong>{file ? file.name : c.dropAudioPack}</strong>
-                    <span>{file ? `${c.selectedFile} · ${formatFileSize(file.size)}` : c.chooseAudioPack}</span>
-                    <small>{c.supportedArchives}</small>
-                  </button>
-                  {fileError ? <p className="import-pack-error">{c.invalidArchive}</p> : null}
+                  {importStatus === "idle" ? (
+                    <>
+                      <input
+                        ref={inputRef}
+                        className="sr-only"
+                        type="file"
+                        accept=".zip,.mcpack"
+                        onChange={(event) => chooseFile(event.target.files?.[0])}
+                      />
+                      <button
+                        type="button"
+                        className={`import-pack-dropzone${isDragging ? " is-dragging" : ""}`}
+                        onClick={() => inputRef.current?.click()}
+                        onDragEnter={(event) => {
+                          event.preventDefault();
+                          setIsDragging(true);
+                        }}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDragLeave={(event) => {
+                          if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+                          setIsDragging(false);
+                        }}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          setIsDragging(false);
+                          chooseFile(event.dataTransfer.files[0]);
+                        }}
+                      >
+                        <span className="import-pack-dropzone__icon">
+                          <FileArchive aria-hidden="true" size={30} />
+                        </span>
+                        <strong>{file ? file.name : c.dropAudioPack}</strong>
+                        <span>{file ? `${c.selectedFile} · ${formatFileSize(file.size)}` : c.chooseAudioPack}</span>
+                        <small>{c.supportedArchives}</small>
+                      </button>
+                      {fileError ? <p className="import-pack-error">{c.invalidArchive}</p> : null}
+                    </>
+                  ) : importStatus === "detecting" ? (
+                    <div className="import-pack-progress" role="status" aria-live="polite">
+                      <div className="import-pack-progress__status">
+                        <LoaderCircle
+                          aria-hidden="true"
+                          className="import-pack-progress__spinner"
+                          size={24}
+                        />
+                        <span>{c.importDetecting}</span>
+                      </div>
+                      <div className="import-pack-progress__track">
+                        <div
+                          className="import-pack-progress__bar"
+                          role="progressbar"
+                          aria-label={c.importDetecting}
+                          aria-valuenow={progress.percent}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                        >
+                          <span style={{ width: `${progress.percent}%` }} />
+                        </div>
+                        <strong className="import-pack-progress__percent">{progress.percent}%</strong>
+                      </div>
+                    </div>
+                  ) : importStatus === "key-choice" ? (
+                    <div className="import-pack-key-choice" role="status">
+                      <div className="import-pack-key-choice__icon">
+                        <Archive aria-hidden="true" size={30} />
+                      </div>
+                      <strong>{keyChoiceTitle}</strong>
+                      <p>{keyChoiceDescription}</p>
+                    </div>
+                  ) : importStatus === "ready" ? (
+                    <div className="import-pack-detected import-pack-detected--ready">
+                      <p className="import-pack-detected__title">{c.importDetectedTitle}</p>
+                      <dl>
+                        {detected ? (
+                          <>
+                            <div>
+                              <dt>{c.edition}</dt>
+                              <dd>{c[detected.platform]}</dd>
+                            </div>
+                            {detected.platform === "java" && detected.gameVersion ? (
+                              <div>
+                                <dt>{c.gameVersion}</dt>
+                                <dd>{detected.gameVersion}</dd>
+                              </div>
+                            ) : null}
+                            {detected.javaPackFormat ? (
+                              <div>
+                                <dt>{c.packFormat}</dt>
+                                <dd>Pack Format {detected.javaPackFormat}</dd>
+                              </div>
+                            ) : null}
+                            <div>
+                              <dt>{c.projectVersion}</dt>
+                              <dd>{detected.version}</dd>
+                            </div>
+                            <div>
+                              <dt>{c.releaseChannel}</dt>
+                              <dd>{c[detected.releaseChannel]}</dd>
+                            </div>
+                          </>
+                        ) : null}
+                      </dl>
+                    </div>
+                  ) : importStatus === "importing" ? (
+                    <div className="import-pack-progress" role="status">
+                      <div className="import-pack-progress__status">
+                        <LoaderCircle
+                          aria-hidden="true"
+                          className="import-pack-progress__spinner"
+                          size={24}
+                        />
+                        <span>{phaseLabel}</span>
+                      </div>
+                      <div className="import-pack-progress__track">
+                        <div
+                          className="import-pack-progress__bar"
+                          role="progressbar"
+                          aria-label={c.importing}
+                          aria-valuenow={progress.percent}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                        >
+                          <span style={{ width: `${progress.percent}%` }} />
+                        </div>
+                        <strong className="import-pack-progress__percent">{progress.percent}%</strong>
+                      </div>
+                      {detected ? (
+                        <div className="import-pack-detected">
+                          <p className="import-pack-detected__title">{c.importDetectedTitle}</p>
+                          <dl>
+                            <div>
+                              <dt>{c.edition}</dt>
+                              <dd>{c[detected.platform]}</dd>
+                            </div>
+                            {detected.javaPackFormat ? (
+                              <div>
+                                <dt>{c.packFormat}</dt>
+                                <dd>Pack Format {detected.javaPackFormat}</dd>
+                              </div>
+                            ) : null}
+                            <div>
+                              <dt>{c.projectVersion}</dt>
+                              <dd>{detected.version}</dd>
+                            </div>
+                            <div>
+                              <dt>{c.releaseChannel}</dt>
+                              <dd>{c[detected.releaseChannel]}</dd>
+                            </div>
+                            {detected.platform === "java" && detected.gameVersion ? (
+                              <div>
+                                <dt>{c.gameVersion}</dt>
+                                <dd>{detected.gameVersion}</dd>
+                              </div>
+                            ) : null}
+                          </dl>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : importStatus === "success" ? (
+                    <div className="import-pack-result is-success" role="status">
+                      <CircleCheck aria-hidden="true" size={36} />
+                      <strong>{c.importSuccess}</strong>
+                    </div>
+                  ) : (
+                    <div className="import-pack-result is-error" role="alert">
+                      <CircleX aria-hidden="true" size={36} />
+                      <strong>{c.importFailed}</strong>
+                      <p>{c.importFailedDescription}</p>
+                    </div>
+                  )}
+                </Modal.Body>
+
+                {importStatus === "idle" || importStatus === "ready" ? (
+                  <Modal.Footer className="wiki-modal__footer">
+                    <Button className="wiki-button wiki-button--neutral" type="button" onPress={close}>
+                      {c.cancel}
+                    </Button>
+                    <Button className="wiki-button wiki-button--primary" isDisabled={!file || importStatus !== "ready"} type="submit">
+                      <UploadCloud aria-hidden="true" size={16} />
+                      {c.importAndOpen}
+                    </Button>
+                  </Modal.Footer>
+                  ) : importStatus === "key-choice" ? (
+                  <Modal.Footer className="wiki-modal__footer import-pack-key-choice__footer">
+                    <Button
+                      className="wiki-button wiki-button--neutral"
+                      type="button"
+                      onPress={() => {
+                        setImportMainKey(detected?.mainKey ?? null);
+                        setConvertToMcsd(false);
+                        setImportStatus("ready");
+                      }}
+                    >
+                      {c.keepOriginal}
+                    </Button>
+                    <Button
+                      className="wiki-button wiki-button--primary"
+                      type="button"
+                      onPress={() => {
+                        setMainKeyDraft("mcsd");
+                        setIsMainKeyDialogOpen(true);
+                      }}
+                    >
+                      {c.convertToMcsd}
+                    </Button>
+                  </Modal.Footer>
+                  ) : importStatus === "error" ? (
+                  <Modal.Footer className="wiki-modal__footer">
+                    <Button className="wiki-button wiki-button--neutral" type="button" onPress={close}>
+                      {c.cancel}
+                    </Button>
+                    <Button
+                      className="wiki-button wiki-button--primary"
+                      type="button"
+                      onPress={() => {
+                        if (file) chooseFile(file);
+                      }}
+                    >
+                      <UploadCloud aria-hidden="true" size={16} />
+                      {c.importAndOpen}
+                    </Button>
+                  </Modal.Footer>
+                ) : null}
+              </form>
+            )}
+          </Modal.Dialog>
+        </Modal.Container>
+    </Modal.Backdrop>
+    </Modal>
+    <Modal isOpen={isMainKeyDialogOpen} onOpenChange={setIsMainKeyDialogOpen}>
+      <Modal.Backdrop className="wiki-modal-backdrop" variant="opaque">
+        <Modal.Container size="sm">
+          <Modal.Dialog className="wiki-modal import-main-key-modal sm:max-w-[460px]">
+            {({ close }) => (
+              <form onSubmit={(event) => {
+                event.preventDefault();
+                const normalizedKey = mainKeyDraft.replace(/[^a-zA-Z0-9]/g, "").toLowerCase().slice(0, KEY_MAX_LENGTH);
+                if (!normalizedKey) return;
+                setImportMainKey(normalizedKey);
+                setConvertToMcsd(true);
+                setMainKeyDraft(normalizedKey);
+                setImportStatus("ready");
+                close();
+              }}>
+                <Modal.CloseTrigger className="wiki-modal__close" />
+                <Modal.Header className="wiki-modal__header">
+                  <Modal.Icon className="wiki-modal__icon"><Archive aria-hidden="true" size={20} /></Modal.Icon>
+                  <div>
+                    <Modal.Heading className="wiki-modal__heading">{c.mainKeyTitle}</Modal.Heading>
+                    <p className="wiki-modal__description">{c.mainKeyDescription}</p>
+                  </div>
+                </Modal.Header>
+                <Modal.Body className="wiki-modal__body import-main-key-modal__body">
+                  <label className="create-project-field">
+                    <span>{c.key}</span>
+                    <div className="create-project-input-wrap">
+                      <input
+                        autoFocus
+                        required
+                        maxLength={KEY_MAX_LENGTH}
+                        className="is-mono"
+                        placeholder={c.mainKeyPlaceholder}
+                        value={mainKeyDraft}
+                        onChange={(event) => setMainKeyDraft(event.target.value.replace(/[^a-zA-Z0-9]/g, "").toLowerCase().slice(0, KEY_MAX_LENGTH))}
+                      />
+                      <small>{mainKeyDraft.length}/{KEY_MAX_LENGTH}</small>
+                    </div>
+                  </label>
                 </Modal.Body>
                 <Modal.Footer className="wiki-modal__footer">
-                  <Button className="wiki-button wiki-button--neutral" type="button" onPress={close}>
-                    {c.cancel}
-                  </Button>
-                  <Button className="wiki-button wiki-button--primary" isDisabled={!file} type="submit">
-                    <UploadCloud aria-hidden="true" size={16} />
-                    {c.importAndOpen}
-                  </Button>
+                  <Button className="wiki-button wiki-button--neutral" type="button" onPress={close}>{c.cancel}</Button>
+                  <Button className="wiki-button wiki-button--primary" type="submit" isDisabled={!mainKeyDraft}>{c.confirmMainKey}</Button>
                 </Modal.Footer>
               </form>
             )}
@@ -855,6 +1281,7 @@ function ImportAudioPackModal({
         </Modal.Container>
       </Modal.Backdrop>
     </Modal>
+    </>
   );
 }
 
@@ -868,12 +1295,16 @@ export function CreateOrImportModal({
   language,
   versionIncrementLimit,
   onCreate,
+  onDetect,
   onImport,
+  onImportComplete,
 }: {
   language: Language;
   versionIncrementLimit: number;
   onCreate: (project: NewProjectData) => void;
-  onImport: (file: File) => void | boolean | Promise<void | boolean>;
+  onDetect: OnDetectAudioPack;
+  onImport: OnImportAudioPack;
+  onImportComplete: () => void;
 }) {
   const c = COPY[language];
   const [createOpen, setCreateOpen] = useState(false);
@@ -957,7 +1388,9 @@ export function CreateOrImportModal({
         language={language}
         isOpen={importOpen}
         onOpenChange={setImportOpen}
+        onDetect={onDetect}
         onImport={onImport}
+        onImportComplete={onImportComplete}
       />
     </>
   );
