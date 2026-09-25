@@ -96,6 +96,6 @@ bun run build
 ## 相关链接
 
 - [GitHub 仓库](https://github.com/al01cn/mcsd2)
-- [Gitee 镜像](https://gitee.com/al01/mcsd)
+- [Gitee 镜像](https://gitee.com/al01/mcsd2)
 
 MCSD 是社区工具，与 Mojang Studios 或 Microsoft 无隶属关系。Minecraft 是 Microsoft 的商标。
