@@ -42,6 +42,8 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { vanillaSoundJava } from "@/lib/sounds";
+import { getJavaSoundSearchAliases } from "@/lib/java-sound-aliases";
+import type { PackPlatform } from "@/app/ui/create-project-modal";
 import { searchSoundEventKeys, translateSoundEventKeyZh } from "@/lib/SoundsTranslate";
 import {
   calculateAudioEventProbability,
@@ -486,6 +488,7 @@ function BindingGraphEdge({
 const EDGE_TYPES = { bindingEdge: BindingGraphEdge };
 
 function AdvancedEventFlowCanvas({
+  platform,
   audioFiles,
   customEventSuffixes,
   onCustomEventChange,
@@ -505,6 +508,7 @@ function AdvancedEventFlowCanvas({
   language,
   motionEnabled,
 }: {
+  platform: PackPlatform;
   audioFiles: EventFlowAudio[];
   customEventSuffixes: Record<string, string>;
   onCustomEventChange: (audioId: string, suffix: string) => void;
@@ -1081,12 +1085,12 @@ function AdvancedEventFlowCanvas({
       (eventName) =>
         eventName !== currentEventName &&
         !usedEventNames.has(eventName),
-    ), query)
+    ), query, platform === "java" ? getJavaSoundSearchAliases : undefined)
       .map((eventName) => ({
         eventName,
         translation: SOUND_EVENT_TRANSLATIONS.get(eventName) || undefined,
       }));
-  }, [nodes, replaceEvent]);
+  }, [nodes, replaceEvent, platform]);
   const replacingEventName = replaceEvent
     ? nodes.find((node) => node.id === replaceEvent.nodeId)?.data.eventName
     : undefined;
@@ -1122,14 +1126,14 @@ function AdvancedEventFlowCanvas({
     const vanillaEvents = searchSoundEventKeys(SOUND_EVENTS.filter(
       (eventName) =>
         !usedEventIds.has(`event:${eventName}`),
-    ), query).map((eventName) => ({
+    ), query, platform === "java" ? getJavaSoundSearchAliases : undefined).map((eventName) => ({
       rawId: eventName,
       eventName,
       translation: SOUND_EVENT_TRANSLATIONS.get(eventName) || undefined,
       isCustomEvent: false,
     }));
     return [...customEvents, ...vanillaEvents];
-  }, [audioFiles, customEventSuffixes, menu?.query, usedEventIds]);
+  }, [audioFiles, customEventSuffixes, menu?.query, usedEventIds, platform]);
 
   const addNode = useCallback(
     (
@@ -1601,6 +1605,7 @@ function AdvancedEventFlowCanvas({
 }
 
 export function AdvancedEventFlow(props: {
+  platform: PackPlatform;
   audioFiles: EventFlowAudio[];
   customEventSuffixes: Record<string, string>;
   onCustomEventChange: (audioId: string, suffix: string) => void;

@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import { useId, useMemo, useState } from "react";
 import { vanillaSoundJava } from "@/lib/sounds";
+import { getJavaSoundSearchAliases } from "@/lib/java-sound-aliases";
+import type { PackPlatform } from "@/app/ui/create-project-modal";
 import { searchSoundEventKeys, translateSoundEventKeyZh } from "@/lib/SoundsTranslate";
 import {
   calculateAudioEventProbability,
@@ -207,6 +209,7 @@ function EventWeightDistribution({
 }
 
 export function BasicEventBindingModal({
+  platform,
   audio,
   allAudio,
   customEventSuffixes,
@@ -219,6 +222,7 @@ export function BasicEventBindingModal({
   onWeightChange,
   variant = "desktop",
 }: {
+  platform: PackPlatform;
   audio: BindingAudio;
   allAudio: BindingAudio[];
   customEventSuffixes: Record<string, string>;
@@ -264,7 +268,7 @@ export function BasicEventBindingModal({
   const candidates = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     if (mode === "vanilla") {
-      return searchSoundEventKeys(VANILLA_EVENTS, normalizedQuery);
+      return searchSoundEventKeys(VANILLA_EVENTS, normalizedQuery, platform === "java" ? getJavaSoundSearchAliases : undefined);
     }
     return customEvents.filter((eventName) => {
       if (!normalizedQuery) return true;
@@ -274,7 +278,7 @@ export function BasicEventBindingModal({
           ?.originalName.toLowerCase()
           .includes(normalizedQuery) === true;
     });
-  }, [customEventAudioByName, customEvents, mode, query]);
+  }, [customEventAudioByName, customEvents, mode, query, platform]);
 
   const addBinding = (eventName: string) => {
     if (boundEvents.includes(eventName)) return;

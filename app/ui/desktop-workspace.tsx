@@ -104,6 +104,7 @@ import {
 import { createProjectContentFingerprint } from "@/lib/project-content";
 import mcVersions from "@/lib/mcver";
 import { vanillaSoundBedrock, vanillaSoundJava } from "@/lib/sounds";
+import { isVanillaJavaSoundEvent } from "@/lib/java-sound-aliases";
 import {
   DEFAULT_AUDIO_EVENT_WEIGHT,
   normalizeAudioEventWeight,
@@ -118,7 +119,6 @@ type ProbeResult = { available: boolean; latency: number | null };
 type AudioAnalysisStatus = "analyzing" | "ready" | "error";
 type AudioConversionStatus = "idle" | "queued" | "converting" | "converted" | "skipped" | "error";
 
-const VANILLA_JAVA_SOUND_EVENTS = new Set(Object.keys(vanillaSoundJava));
 const VANILLA_BEDROCK_SOUND_EVENTS = new Set([
   ...Object.keys(vanillaSoundJava),
   ...Object.keys(vanillaSoundBedrock.individual_event_sounds.events),
@@ -303,9 +303,6 @@ function convertImportedWorkspaceToMcsd(
   workspace: PersistedProjectWorkspace,
   platform: PackPlatform,
 ) {
-  const vanillaEvents = platform === "java"
-    ? VANILLA_JAVA_SOUND_EVENTS
-    : VANILLA_BEDROCK_SOUND_EVENTS;
   const converted = convertLegacySoundMappingsToMcsd(
     {
       customEventSuffixes: workspace.customEventSuffixes,
@@ -313,7 +310,9 @@ function convertImportedWorkspaceToMcsd(
       eventWeights: workspace.audioEventWeights ?? {},
       audioSubtitles: workspace.audioSubtitles ?? {},
     },
-    (eventName) => vanillaEvents.has(eventName),
+    (eventName) => platform === "java"
+      ? isVanillaJavaSoundEvent(eventName)
+      : VANILLA_BEDROCK_SOUND_EVENTS.has(eventName),
   );
 
   return {
@@ -3886,6 +3885,7 @@ export function DesktopWorkspace() {
                 <div className="workspace-panel__body">
                   {visibleEventEditorMode === "novice" ? (
                     <NoviceEventManager
+                      platform={selectedProject?.platform ?? "java"}
                       audioFiles={audioFiles}
                       customEventSuffixes={customEventSuffixes}
                       customEventNames={customEventNames}
@@ -3948,6 +3948,7 @@ export function DesktopWorkspace() {
                           <div className="mapping-row__binding">
                             <span>{c.event}</span>
                             <BasicEventBindingModal
+                              platform={selectedProject?.platform ?? "java"}
                               audio={item}
                               allAudio={audioFiles}
                               customEventSuffixes={customEventSuffixes}
@@ -3984,6 +3985,7 @@ export function DesktopWorkspace() {
                   {!isMobileWorkspace && hasOpenedAdvancedEditor ? (
                     <div hidden={visibleEventEditorMode !== "advanced"}>
                       <AdvancedEventFlow
+                        platform={selectedProject?.platform ?? "java"}
                         key={selectedProjectId}
                         audioFiles={audioFiles}
                         customEventSuffixes={customEventSuffixes}

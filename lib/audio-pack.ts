@@ -1,5 +1,9 @@
 import type { PackPlatform } from "@/app/ui/create-project-modal";
 import {
+  getJavaSoundEventNames,
+  normalizeJavaSoundEventName,
+} from "@/lib/java-sound-aliases";
+import {
   getAudioEventWeight,
   type AudioEventWeights,
 } from "@/lib/audio-event-weight";
@@ -330,31 +334,41 @@ export function buildJavaPackMeta(
 export function buildJavaSoundsJson(input: AudioPackBuildInput) {
   const packKey = normalizePackKey(input.key);
   const definitions: Record<string, JavaSoundDefinition> = {};
+  const sourcesByEvent = new Map<string, Map<string, { entry: SoundEntry; rank: number }>>();
 
   for (const audio of input.audioFiles) {
     const soundName = buildPackSoundPath(packKey, normalizeAudioKey(audio.key));
     const subtitle = input.audioSubtitles?.[audio.id]?.trim();
-    const seenForAudio = new Set<string>();
+    const bindings = [...new Set((input.eventBindings[audio.id] ?? []).map((name) => name.trim()))]
+      .filter(Boolean)
+      .sort();
 
-    for (const rawEventName of input.eventBindings[audio.id] ?? []) {
-      const eventName = rawEventName.trim();
-      if (!eventName || seenForAudio.has(eventName)) continue;
-      seenForAudio.add(eventName);
-
-      const definition = definitions[eventName] ?? {
-        ...(eventName.startsWith(CUSTOM_EVENT_PREFIX) ? {} : { replace: true }),
-        sounds: [],
-      };
-      if (!definition.subtitle && subtitle) definition.subtitle = subtitle;
-      if (!definition.sounds.some((sound) => sound.name === soundName)) {
-        const weight = getAudioEventWeight(input.eventWeights, audio.id, eventName);
-        definition.sounds.push({
-          name: soundName,
-          stream: true,
-          ...(weight === 1 ? {} : { weight }),
-        });
+    for (const rawEventName of bindings) {
+      const sourceName = normalizeJavaSoundEventName(rawEventName);
+      const weight = getAudioEventWeight(input.eventWeights, audio.id, rawEventName);
+      for (const eventName of getJavaSoundEventNames(sourceName)) {
+        const definition = Object.hasOwn(definitions, eventName) ? definitions[eventName] : {
+          ...(eventName.startsWith(CUSTOM_EVENT_PREFIX) ? {} : { replace: true }),
+          sounds: [],
+        };
+        if (!definition.subtitle && subtitle) definition.subtitle = subtitle;
+        const sources = sourcesByEvent.get(eventName) ?? new Map();
+        const sourceOrder = getJavaSoundEventNames(eventName).indexOf(sourceName);
+        const rank = sourceName === eventName ? 0 : sourceOrder + 1;
+        const previous = sources.get(soundName);
+        if (!previous) {
+          const entry: SoundEntry = { name: soundName, stream: true, ...(weight === 1 ? {} : { weight }) };
+          definition.sounds.push(entry);
+          sources.set(soundName, { entry, rank });
+        } else if (rank < previous.rank) {
+          // A direct binding wins even when its audio/path was encountered later.
+          if (weight === 1) delete previous.entry.weight;
+          else previous.entry.weight = weight;
+          previous.rank = rank;
+        }
+        sourcesByEvent.set(eventName, sources);
+        definitions[eventName] = definition;
       }
-      definitions[eventName] = definition;
     }
   }
 

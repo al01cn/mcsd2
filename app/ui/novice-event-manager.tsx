@@ -22,6 +22,8 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { vanillaSoundJava } from "@/lib/sounds";
+import { getJavaSoundSearchAliases } from "@/lib/java-sound-aliases";
+import type { PackPlatform } from "@/app/ui/create-project-modal";
 import { searchSoundEventKeys, translateSoundEventKeyZh } from "@/lib/SoundsTranslate";
 import {
   calculateAudioEventProbability,
@@ -55,6 +57,7 @@ export type NoviceEventAudio = {
 };
 
 type Props = {
+  platform: PackPlatform;
   audioFiles: NoviceEventAudio[];
   customEventSuffixes: Record<string, string>;
   customEventNames: string[];
@@ -184,6 +187,7 @@ function normalizeCustomEvent(value: string) {
 }
 
 export function NoviceEventManager({
+  platform,
   audioFiles,
   customEventSuffixes,
   customEventNames,
@@ -256,14 +260,14 @@ export function NoviceEventManager({
   const createOptions = useMemo(() => {
     const query = createQuery.trim().toLocaleLowerCase();
     if (createMode === "vanilla") {
-      return searchSoundEventKeys(VANILLA_EVENTS, query);
+      return searchSoundEventKeys(VANILLA_EVENTS, query, platform === "java" ? getJavaSoundSearchAliases : undefined);
     }
     return Array.from(customEventAudioByName.entries())
       .filter(([eventName, audio]) =>
         !query || `${eventName} ${audio.name} ${audio.originalName}`.toLocaleLowerCase().includes(query),
       )
       .map(([eventName]) => eventName);
-  }, [createMode, createQuery, customEventAudioByName]);
+  }, [createMode, createQuery, customEventAudioByName, platform]);
 
   const visibleEventNames = useMemo(() => {
     const query = folderQuery.trim().toLocaleLowerCase();
@@ -311,8 +315,9 @@ export function NoviceEventManager({
     return searchSoundEventKeys(
       VANILLA_EVENTS.filter((eventName) => eventName !== replaceEvent),
       replaceQuery.trim().toLocaleLowerCase(),
+      platform === "java" ? getJavaSoundSearchAliases : undefined,
     );
-  }, [replaceEvent, replaceQuery]);
+  }, [replaceEvent, replaceQuery, platform]);
 
   const bindAudioToEvent = (audioId: string, eventName: string) => {
     const current = eventBindings[audioId] ?? [];

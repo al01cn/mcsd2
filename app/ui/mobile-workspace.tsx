@@ -637,6 +637,7 @@ export function MobileWorkspace({
             {activeStep === 1 ? (
               <section className="mobile-event-screen">
                 <NoviceEventManager
+                  platform={selectedProject?.platform ?? "java"}
                   audioFiles={audioFiles}
                   customEventSuffixes={customEventSuffixes}
                   customEventNames={customEventNames}

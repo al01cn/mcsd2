@@ -1105,6 +1105,7 @@ function getSoundEventSearchPriority(key: string, query: string): number | null 
 export function searchSoundEventKeys(
   keys: readonly string[],
   query: string,
+  getAliases?: (key: string) => readonly string[],
 ): string[] {
   const q = query.trim();
   if (!q) return [...keys];
@@ -1113,7 +1114,14 @@ export function searchSoundEventKeys(
     .map((key, index) => ({
       index,
       key,
-      priority: getSoundEventSearchPriority(key, q),
+      priority: (() => {
+        let best = getSoundEventSearchPriority(key, q);
+        for (const alias of getAliases?.(key) ?? []) {
+          const priority = getSoundEventSearchPriority(alias, q);
+          if (priority !== null && (best === null || priority < best)) best = priority;
+        }
+        return best;
+      })(),
     }))
     .filter(
       (result): result is typeof result & { priority: number } =>
